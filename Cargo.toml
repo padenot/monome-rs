@@ -1,0 +1,10 @@
+[package]
+name = "hello-world"
+version = "0.1.0"
+authors = ["Paul Adenot <<paul@paul.cx>>"]
+
+[dependencies]
+tokio = "0.1"
+rosc = "0.1"
+futures = "0.1.20"
+error-chain = "0.5"
