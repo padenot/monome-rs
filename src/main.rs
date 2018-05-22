@@ -6,11 +6,16 @@ extern crate rosc;
 extern crate log;
 extern crate env_logger;
 
-use std::io;
+use std::io::{self, Read};
+use std::fmt;
 use std::net::SocketAddr;
+use std::thread;
+use std::sync::mpsc::{self, channel, Receiver, Sender};
 
 use tokio::prelude::*;
 use tokio::net::UdpSocket;
+
+use futures::sync::mpsc as fut_mpsc;
 
 use rosc::decoder::decode;
 use rosc::encoder::encode;
@@ -18,104 +23,84 @@ use rosc::{OscPacket, OscMessage, OscType};
 
 pub const PREFIX: &str = "/prefix";
 
-struct Enumerator {
+struct Transport {
     server_port: u16,
-    socket: Option<UdpSocket>,
-    device_port: Option<i32>,
-    device_type: Option<String>,
-    device_name: Option<String>,
-    device_host: Option<String>,
-    device_id: Option<String>,
-    device_prefix: Option<String>,
-    device_rotation: Option<i32>,
-    device_size: Option<(i32, i32)>,
-    received_server: Option<(usize, std::net::SocketAddr)>,
-    enumerated: bool,
-    host_port_set: bool
+    device_port: i32,
+    socket: UdpSocket,
+    tx: Sender<Vec<u8>>,
+    rx: fut_mpsc::Receiver<Vec<u8>>
 }
 
-impl Enumerator {
-    pub fn new() -> Result<Enumerator, String> {
-
-                let enumerator = Enumerator {
-                    received_server: None,
-                    device_port: None,
-                    socket: None,
-                    device_name: None,
-                    device_type: None,
-                    device_host: None,
-                    device_id: None,
-                    device_prefix: None,
-                    device_rotation: None,
-                    device_size: None,
-                    server_port: 10001, // FIXME stop hardcode
-                    enumerated: false,
-                    host_port_set: false
-                };
-                return Ok(enumerator);
-    }
-
-    pub fn setup(&mut self) -> Result<UdpSocket, &'static str> {
-        let addr = "127.0.0.1";
-        let packet = message("/serialosc/list",
-                             vec![OscType::String(addr.to_string()),
-                             OscType::Int(i32::from(self.server_port))]);
-
-        let bytes: Vec<u8> = encode(&packet).unwrap();
-
+impl Transport {
+    pub fn new(rrx: fut_mpsc::Receiver<Vec<u8>>) -> Result<(Transport, Receiver<Vec<u8>>, String, String, i32), String> {
         // serialosc address, pretty safe to hardcode
         let addr = "127.0.0.1:12002".parse().unwrap();
 
+        // find a free port
+        let socket = loop {
+            let mut port = 10000;
+            let server_addr = format!("127.0.0.1:{}", port).parse().unwrap();
+            let bind_result = UdpSocket::bind(&server_addr);
+            match bind_result {
+                Ok(socket) => {
+                    break socket
+                }
+                Err(e) => {
+                    port = port + 1;
+                }
+            }
+        };
 
-        let server_addr = "127.0.0.1:10001".parse().unwrap();
-        let bind_result = UdpSocket::bind(&server_addr);
+        let server_port = socket.local_addr().unwrap().port();
+        let server_ip = socket.local_addr().unwrap().ip().to_string();
 
-        let socket = bind_result.unwrap();
+        let packet = message("/serialosc/list",
+                             vec![OscType::String(server_ip),
+                             OscType::Int(i32::from(server_port))]);
+
+        let bytes: Vec<u8> = encode(&packet).unwrap();
 
         let rv = socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
             socket.recv_dgram(vec![0u8; 1024]).map(|(socket, data, len, _)| {
                 let packet = decode(&data).unwrap();
 
-                match packet {
+                let rv = match packet {
                     OscPacket::Message(message) => {
-                        if message.addr.starts_with("/serialosc") {
-                            if message.addr == "/serialosc/device" {
-                                if let Some(args) = message.args {
-                                    if let OscType::String(ref device_name) = args[0] {
-                                        self.device_name = Some(device_name.to_string());
-                                        info!("device_name: {}", device_name);
-                                    }
-                                    if let OscType::String(ref device_type) = args[1] {
-                                        self.device_type = Some(device_type.to_string());
-                                        info!("device_type: {}", device_type.to_string());
-                                    }
-                                    if let OscType::Int(device_port) = args[2] {
-                                        self.device_port = Some(device_port);
-                                        info!("device_port: {}", device_port);
+                        (||{
+                            if message.addr.starts_with("/serialosc") {
+                                if message.addr == "/serialosc/device" {
+                                    if let Some(args) = message.args {
+                                        if let OscType::String(ref name) = args[0] {
+                                            if let OscType::String(ref device_type) = args[1] {
+                                                if let OscType::Int(port) = args[2] {
+                                                    return Ok((name.clone(), device_type.clone(), port));
+                                                }
+                                            }
+                                        }
                                     }
                                 }
-                            } else {
-                                error!("Unexp prefix during setup: {}", message.addr);
                             }
-                        } else {
-                            error!("Unexp prefix during setup: {}", message.addr);
+                            Err("Bad format")
                         }
+                        )()
                     }
                     OscPacket::Bundle(bundle) => {
-                        error!("Unexpected bundle received during setup {:?}", bundle);
+                        Err("Unexpected bundle received during setup")
                     }
-                }
+                };
 
-                let device_address = format!("127.0.0.1:{}", self.device_port.unwrap());
+                let (name, device_type, port): (String, String, i32) = rv.unwrap();
+
+                let device_address = format!("127.0.0.1:{}", port);
                 let add = device_address.parse();
                 let addr: SocketAddr = add.unwrap();
 
                 let packet = message("/sys/port",
-                                     vec![OscType::Int(i32::from(10001))]);
+                                     vec![OscType::Int(i32::from(server_port))]);
 
                 let bytes: Vec<u8> = encode(&packet).unwrap();
 
-                socket.send_dgram(bytes, &addr).and_then(|(socket, buf)| {
+                let rv = socket.send_dgram(bytes, &addr).and_then(|(socket, buf)| {
                     let local_addr = socket.local_addr().unwrap().ip();
                     let packet = message("/sys/host",
                                          vec![OscType::String(local_addr.to_string())]);
@@ -137,60 +122,77 @@ impl Enumerator {
                                 socket.send_dgram(bytes, &addr).and_then(|(socket, buf)| {
                                     let packet = message("/prefix/grid/led/all", vec![OscType::Int(0)]);
                                     let bytes: Vec<u8> = encode(&packet).unwrap();
+                                    debug!("finished init");
                                     socket.send_dgram(bytes, &addr)
                                 })
                             })
                         })
                     })
-                }).wait()
+                }).wait();
+                let (socket, _) = rv.unwrap();
+                (socket, name, device_type, port)
             }).wait()
         }).wait();
 
         match rv {
-            Ok(Ok((socket, _))) => {
-                Ok(socket)
-            }
-            Ok(Err(_)) => {
-                Err("setup failed")
+            Ok((socket, name, device_type, port)) => {
+                let (tx, rx) = channel();
+                Ok((Transport {
+                    socket,
+                    server_port,
+                    device_port: port,
+                    tx: tx,
+                    rx: rrx
+                    }, rx, name, device_type, port))
             }
             Err(e) => {
-                error!("Setup failed: {}", e);
-                Err("setup failed")
+                Err(e.to_string())
             }
         }
     }
-
-    fn set_socket(&mut self, socket: UdpSocket) {
-      self.socket = Some(socket);
-    }
-
 }
 
-fn message(addr: &str, args: Vec<OscType>) -> OscPacket {
-    let message = OscMessage {
-        addr: addr.to_owned(),
-        args: Some(args),
-    };
-    OscPacket::Message(message)
-}
-
-impl Future for Enumerator {
+impl Future for Transport {
     type Item = ();
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<(), io::Error> {
-        let mut s = self.socket.take().unwrap();
         loop {
+            match self.rx.poll() {
+                Ok(fut) => {
+                    match fut {
+                        Async::Ready(b) => {
+                            let device_address = format!("127.0.0.1:{}", self.device_port);
+                            let addr: SocketAddr = device_address.parse().unwrap();
+                            match self.socket.poll_send_to(&mut b.unwrap(), &addr) {
+                                Ok(Async::Ready(count)) => {
+                                }
+                                Ok(Async::NotReady) => {
+                                }
+                                Err(_) => {
+                                    println!("Error sending");
+                                }
+                            }
+                        }
+                        Async::NotReady => {
+                        }
+
+                    }
+                }
+                Err(e) => {
+                    println!("{:?}", e);
+                }
+            }
+
             let mut buf = vec![0; 1000];
-            match s.poll_recv(&mut buf) {
+            match self.socket.poll_recv(&mut buf) {
                 Ok(fut) => {
                     match fut {
                         Async::Ready(ready) => {
-                            println!("ready: {:?}", ready);
+                            self.tx.send(buf);
                         }
                         Async::NotReady => {
                             futures::task::park();
-                            self.set_socket(s);
                             return Ok(Async::NotReady);
                         }
                     }
@@ -199,6 +201,54 @@ impl Future for Enumerator {
                     return Err(e);
                 }
             }
+        }
+        println!("ciao");
+    }
+}
+
+struct Monome {
+    name: String,
+    device_type: String,
+    port: i32,
+    host: Option<String>,
+    id: Option<String>,
+    prefix: Option<String>,
+    rotation: Option<i32>,
+    size: Option<(i32, i32)>,
+    rx: Receiver<Vec<u8>>,
+    tx: fut_mpsc::Sender<Vec<u8>>
+}
+
+impl Monome {
+    pub fn new() -> Result<Monome, String> {
+        let (sender, receiver) = futures::sync::mpsc::channel(16);
+        let (transport, rx, name, device_type, port) = Transport::new(receiver).unwrap();
+
+        thread::spawn(move || {
+            tokio::run(transport.map_err(|e| println!("server error = {:?}", e)));
+        });
+
+        let mut monome = Monome {
+            tx: sender,
+            rx: rx,
+            name: name,
+            device_type: device_type,
+            host: None,
+            id: None,
+            port: port,
+            prefix: None,
+            rotation: None,
+            size: None
+        };
+        return Ok(monome);
+    }
+    fn send(&mut self, a: i32) {
+        let packet = message("/prefix/grid/led/all", vec![OscType::Int(a)]);
+        let bytes: Vec<u8> = encode(&packet).unwrap();
+        self.tx.try_send(bytes).unwrap();
+    }
+    fn poll(&mut self) {
+            let buf = self.rx.recv().unwrap();
             let packet = decode(&buf).unwrap();
             debug!("⇐  {:?}", packet);
 
@@ -206,17 +256,7 @@ impl Future for Enumerator {
                 OscPacket::Message(message) => {
                     if message.addr.starts_with("/serialosc") {
                         if message.addr == "/serialosc/device" {
-                            if let Some(args) = message.args {
-                                if let OscType::String(ref device_name) = args[0] {
-                                    self.device_name = Some(device_name.to_string());
-                                }
-                                if let OscType::String(ref device_type) = args[1] {
-                                    self.device_type = Some(device_type.to_string());
-                                }
-                                if let OscType::Int(device_port) = args[2] {
-                                    self.device_port = Some(device_port);
-                                }
-                            }
+                          info!("/serialosc/device");
                         } else if message.addr == "/serialosc/add" {
                             if let Some(args) = message.args {
                                 if let OscType::String(ref device_name) = args[0] {
@@ -238,32 +278,28 @@ impl Future for Enumerator {
                         if let Some(args) = message.args {
                             if message.addr.starts_with("/sys/port") {
                                 if let OscType::Int(port) = args[0] {
-                                    self.device_port = Some(port);
-                                }
-                            } else if message.addr.starts_with("/sys/host") {
-                                if let OscType::String(ref name) = args[0] {
-                                    self.device_name = Some(name.to_string());
+                                    info!("/sys/port {}", port);
                                 }
                             } else if message.addr.starts_with("/sys/host") {
                                 if let OscType::String(ref host) = args[0] {
-                                    self.device_host = Some(host.to_string());
+                                    self.host = Some(host.to_string());
                                 }
                             } else if message.addr.starts_with("/sys/id") {
                                 if let OscType::String(ref id) = args[0] {
-                                    self.device_id = Some(id.to_string());
+                                    self.id = Some(id.to_string());
                                 }
                             } else if message.addr.starts_with("/sys/prefix") {
                                 if let OscType::String(ref prefix) = args[0] {
-                                    self.device_prefix = Some(prefix.to_string());
+                                    self.prefix = Some(prefix.to_string());
                                 }
                             } else if message.addr.starts_with("/sys/rotation") {
                                 if let OscType::Int(rotation) = args[0] {
-                                    self.device_rotation = Some(rotation);
+                                    self.rotation = Some(rotation);
                                 }
                             } else if message.addr.starts_with("/sys/size") {
                                 if let OscType::Int(x) = args[0] {
                                     if let OscType::Int(y) = args[1] {
-                                        self.device_size = Some((x, y));
+                                        self.size = Some((x, y));
                                     }
                                 }
                             }
@@ -298,16 +334,42 @@ impl Future for Enumerator {
                     panic!("wtf.");
                 }
             }
-        }
-        println!("ciao");
     }
+}
+
+impl fmt::Debug for Monome {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Monome {}\ntype: {}\nport: {}\nhost: {}\nid: {}\nprefix: {}\nrotation: {}\nsize: {}:{}",
+         self.name,
+         self.device_type,
+         self.port,
+         self.host.as_ref().unwrap_or(&String::from("?")),
+         self.id.as_ref().unwrap_or(&String::from("?")),
+         self.prefix.as_ref().unwrap_or(&String::from("?")),
+         self.rotation.unwrap_or(0).to_string(),
+         self.size.unwrap_or((0,0)).0,
+         self.size.unwrap_or((0,0)).1)
+    }
+}
+
+fn message(addr: &str, args: Vec<OscType>) -> OscPacket {
+    let message = OscMessage {
+        addr: addr.to_owned(),
+        args: Some(args),
+    };
+    OscPacket::Message(message)
 }
 
 fn main() {
     env_logger::init();
 
-    let mut enumerator = Enumerator::new().unwrap();
-    let s = enumerator.setup();
-    enumerator.set_socket(s.unwrap());
-    tokio::run(enumerator.map_err(|e| println!("server error = {:?}", e)));
+    let mut monome = Monome::new().unwrap();
+
+    let mut a = 0;
+
+    loop {
+        monome.poll();
+        monome.send(a);
+        a = (a + 1) % 2;
+    }
 }
