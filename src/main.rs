@@ -1,4 +1,3 @@
-#[macro_use]
 extern crate futures;
 extern crate tokio;
 extern crate rosc;
@@ -6,39 +5,40 @@ extern crate rosc;
 extern crate log;
 extern crate env_logger;
 
-use std::io::{self, Read};
+use std::io;
 use std::fmt;
 use std::net::SocketAddr;
 use std::thread;
-use std::sync::mpsc::{self, channel, Receiver, Sender};
+use std::sync::mpsc::{channel, Receiver, Sender};
 
 use tokio::prelude::*;
 use tokio::net::UdpSocket;
 
-use futures::sync::mpsc as fut_mpsc;
+use futures::sync::mpsc as future_mpsc;
 
 use rosc::decoder::decode;
 use rosc::encoder::encode;
 use rosc::{OscPacket, OscMessage, OscType};
 
 pub const PREFIX: &str = "/prefix";
+pub const SERIALOSC_PORT: i32 = 12002;
 
 struct Transport {
-    server_port: u16,
     device_port: i32,
     socket: UdpSocket,
     tx: Sender<Vec<u8>>,
-    rx: fut_mpsc::Receiver<Vec<u8>>
+    rx: future_mpsc::Receiver<Vec<u8>>
 }
 
 impl Transport {
-    pub fn new(rrx: fut_mpsc::Receiver<Vec<u8>>) -> Result<(Transport, Receiver<Vec<u8>>, String, String, i32), String> {
+    pub fn new(serialosc_port: i32, rrx: future_mpsc::Receiver<Vec<u8>>)
+        -> Result<(Transport, Receiver<Vec<u8>>, String, String, i32), String> {
         // serialosc address, pretty safe to hardcode
-        let addr = "127.0.0.1:12002".parse().unwrap();
+        let addr = format!("127.0.0.1:{}", serialosc_port).parse().unwrap();
 
         // find a free port
+        let mut port = 10000;
         let socket = loop {
-            let mut port = 10000;
             let server_addr = format!("127.0.0.1:{}", port).parse().unwrap();
             let bind_result = UdpSocket::bind(&server_addr);
             match bind_result {
@@ -46,9 +46,13 @@ impl Transport {
                     break socket
                 }
                 Err(e) => {
-                    port = port + 1;
+                    error!("bind error: {}", e.to_string());
+                    if port > 65536 {
+                        panic!("Could not bind socket: port exhausted");
+                    }
                 }
             }
+            port += 1;
         };
 
         let server_port = socket.local_addr().unwrap().port();
@@ -61,7 +65,7 @@ impl Transport {
         let bytes: Vec<u8> = encode(&packet).unwrap();
 
         let rv = socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
-            socket.recv_dgram(vec![0u8; 1024]).map(|(socket, data, len, _)| {
+            socket.recv_dgram(vec![0u8; 1024]).map(|(socket, data, _, _)| {
                 let packet = decode(&data).unwrap();
 
                 let rv = match packet {
@@ -73,7 +77,9 @@ impl Transport {
                                         if let OscType::String(ref name) = args[0] {
                                             if let OscType::String(ref device_type) = args[1] {
                                                 if let OscType::Int(port) = args[2] {
-                                                    return Ok((name.clone(), device_type.clone(), port));
+                                                    return Ok((name.clone(),
+                                                               device_type.clone(),
+                                                               port));
                                                 }
                                             }
                                         }
@@ -84,7 +90,7 @@ impl Transport {
                         }
                         )()
                     }
-                    OscPacket::Bundle(bundle) => {
+                    OscPacket::Bundle(_bundle) => {
                         Err("Unexpected bundle received during setup")
                     }
                 };
@@ -100,26 +106,26 @@ impl Transport {
 
                 let bytes: Vec<u8> = encode(&packet).unwrap();
 
-                let rv = socket.send_dgram(bytes, &addr).and_then(|(socket, buf)| {
+                let rv = socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
                     let local_addr = socket.local_addr().unwrap().ip();
                     let packet = message("/sys/host",
                                          vec![OscType::String(local_addr.to_string())]);
 
                     let bytes: Vec<u8> = encode(&packet).unwrap();
 
-                    socket.send_dgram(bytes, &addr).and_then(|(socket, buf)| {
+                    socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
                         let packet = message("/sys/prefix", vec![OscType::String(PREFIX.to_string())]);
 
                         let bytes: Vec<u8> = encode(&packet).unwrap();
-                        socket.send_dgram(bytes, &addr).and_then(|(socket, buf)| {
+                        socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
                             let packet = message("/sys/info", vec![]);
 
                             let bytes: Vec<u8> = encode(&packet).unwrap();
-                            socket.send_dgram(bytes, &addr).and_then(|(socket, buf)| {
+                            socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
                                 // led flash
                                 let packet = message("/prefix/grid/led/all", vec![OscType::Int(1)]);
                                 let bytes: Vec<u8> = encode(&packet).unwrap();
-                                socket.send_dgram(bytes, &addr).and_then(|(socket, buf)| {
+                                socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
                                     let packet = message("/prefix/grid/led/all", vec![OscType::Int(0)]);
                                     let bytes: Vec<u8> = encode(&packet).unwrap();
                                     debug!("finished init");
@@ -139,7 +145,6 @@ impl Transport {
                 let (tx, rx) = channel();
                 Ok((Transport {
                     socket,
-                    server_port,
                     device_port: port,
                     tx: tx,
                     rx: rrx
@@ -165,7 +170,7 @@ impl Future for Transport {
                             let device_address = format!("127.0.0.1:{}", self.device_port);
                             let addr: SocketAddr = device_address.parse().unwrap();
                             match self.socket.poll_send_to(&mut b.unwrap(), &addr) {
-                                Ok(Async::Ready(count)) => {
+                                Ok(Async::Ready(_count)) => {
                                 }
                                 Ok(Async::NotReady) => {
                                 }
@@ -188,11 +193,17 @@ impl Future for Transport {
             match self.socket.poll_recv(&mut buf) {
                 Ok(fut) => {
                     match fut {
-                        Async::Ready(ready) => {
-                            self.tx.send(buf);
+                        Async::Ready(_ready) => {
+                            match self.tx.send(buf) {
+                                Ok(()) => {
+                                }
+                                Err(e) => {
+                                    println!("??, {}", e);
+                                }
+                            }
                         }
                         Async::NotReady => {
-                            futures::task::park();
+                            futures::task::current();
                             return Ok(Async::NotReady);
                         }
                     }
@@ -202,7 +213,6 @@ impl Future for Transport {
                 }
             }
         }
-        println!("ciao");
     }
 }
 
@@ -216,19 +226,19 @@ struct Monome {
     rotation: Option<i32>,
     size: Option<(i32, i32)>,
     rx: Receiver<Vec<u8>>,
-    tx: fut_mpsc::Sender<Vec<u8>>
+    tx: future_mpsc::Sender<Vec<u8>>
 }
 
 impl Monome {
     pub fn new() -> Result<Monome, String> {
         let (sender, receiver) = futures::sync::mpsc::channel(16);
-        let (transport, rx, name, device_type, port) = Transport::new(receiver).unwrap();
+        let (transport, rx, name, device_type, port) = Transport::new(SERIALOSC_PORT, receiver).unwrap();
 
         thread::spawn(move || {
             tokio::run(transport.map_err(|e| println!("server error = {:?}", e)));
         });
 
-        let mut monome = Monome {
+        let monome = Monome {
             tx: sender,
             rx: rx,
             name: name,

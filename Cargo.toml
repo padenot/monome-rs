@@ -1,5 +1,5 @@
 [package]
-name = "hello-world"
+name = "monome-rs"
 version = "0.1.0"
 authors = ["Paul Adenot <paul@paul.cx>"]
 
