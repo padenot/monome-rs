@@ -1,3 +1,4 @@
+#[macro_use]
 extern crate futures;
 extern crate tokio;
 extern crate rosc;
@@ -8,7 +9,7 @@ extern crate env_logger;
 use std::io;
 use std::fmt;
 use std::net::SocketAddr;
-use std::thread;
+use std::{thread, time};
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 use tokio::prelude::*;
@@ -169,26 +170,20 @@ impl Future for Transport {
                         Async::Ready(b) => {
                             let device_address = format!("127.0.0.1:{}", self.device_port);
                             let addr: SocketAddr = device_address.parse().unwrap();
-                            match self.socket.poll_send_to(&mut b.unwrap(), &addr) {
-                                Ok(Async::Ready(_count)) => {
-                                }
-                                Ok(Async::NotReady) => {
-                                }
-                                Err(_) => {
-                                    println!("Error sending");
-                                }
-                            }
+                            let amt = try_ready!(self.socket.poll_send_to(&mut b.unwrap(), &addr));
                         }
                         Async::NotReady => {
+                            break;
                         }
-
                     }
                 }
                 Err(e) => {
-                    println!("{:?}", e);
+                    error!("Error on future::mpsc {:?}", e);
                 }
             }
+        }
 
+        loop {
             let mut buf = vec![0; 1000];
             match self.socket.poll_recv(&mut buf) {
                 Ok(fut) => {
@@ -196,14 +191,14 @@ impl Future for Transport {
                         Async::Ready(_ready) => {
                             match self.tx.send(buf) {
                                 Ok(()) => {
+                                    continue;
                                 }
                                 Err(e) => {
-                                    println!("??, {}", e);
+                                    error!("receive from monome, {}", e);
                                 }
                             }
                         }
                         Async::NotReady => {
-                            futures::task::current();
                             return Ok(Async::NotReady);
                         }
                     }
@@ -229,13 +224,21 @@ struct Monome {
     tx: future_mpsc::Sender<Vec<u8>>
 }
 
+fn message(addr: &str, args: Vec<OscType>) -> OscPacket {
+    let message = OscMessage {
+        addr: addr.to_owned(),
+        args: Some(args),
+    };
+    OscPacket::Message(message)
+}
+
 impl Monome {
     pub fn new() -> Result<Monome, String> {
         let (sender, receiver) = futures::sync::mpsc::channel(16);
         let (transport, rx, name, device_type, port) = Transport::new(SERIALOSC_PORT, receiver).unwrap();
 
         thread::spawn(move || {
-            tokio::run(transport.map_err(|e| println!("server error = {:?}", e)));
+            tokio::run(transport.map_err(|e| error!("server error = {:?}", e)));
         });
 
         let monome = Monome {
@@ -252,98 +255,175 @@ impl Monome {
         };
         return Ok(monome);
     }
-    fn send(&mut self, a: i32) {
-        let packet = message("/prefix/grid/led/all", vec![OscType::Int(a)]);
+    fn set(&mut self, x: i32, y: i32, on: bool) {
+        self.send("/prefix/grid/led/set",
+             vec![OscType::Int(x),
+             OscType::Int(y),
+             OscType::Int(if on { 1 } else { 0 })]);
+    }
+    //fn all(&mut self, on: bool) {
+    //    self.send("/prefix/grid/led/all",
+    //              vec![OscType::Int(if on { 1 } else { 0 })]);
+    //}
+    fn all(&mut self, intensity: i32) {
+        self.send("/prefix/grid/led/level/all",
+                  vec![OscType::Int(intensity)]);
+    }
+    fn map(&mut self, x: i32, y: i32, masks: Vec<i8>) {
+        let mut args = Vec::with_capacity(10);
+
+        args.push(OscType::Int(x));
+        args.push(OscType::Int(y));
+
+        for mask in masks.iter().map(|m| OscType::Int(*m as i32)) {
+            args.push(mask);
+        }
+        self.send("/prefix/grid/led/map", args);
+    }
+    fn row(&mut self, x_offset: i32, y: i32, mask: i8) {
+        let mut args = Vec::with_capacity(3);
+
+        args.push(OscType::Int(x_offset));
+        args.push(OscType::Int(y));
+
+        // twice for a 128 for ex (implement dynamic check)
+        args.push(OscType::Int(i32::from(mask)));
+        args.push(OscType::Int(i32::from(mask)));
+
+        self.send("/prefix/grid/led/row", args);
+    }
+    fn col(&mut self, x: i32, y_offset: i32, mask: i8) {
+        let mut args = Vec::with_capacity(4);
+
+        args.push(OscType::Int(x));
+        args.push(OscType::Int(y_offset));
+
+        args.push(OscType::Int(i32::from(mask)));
+
+        self.send("/prefix/grid/led/col", args);
+    }
+    fn tilt_all(&mut self, on: bool) {
+
+        for i in vec![0,1,2] {
+            let mut args = Vec::with_capacity(2);
+            args.push(OscType::Int(i));
+            args.push(OscType::Int(if on { 1 } else { 0 }));
+
+            self.send("/prefix/tilt/set", args.clone());
+        }
+    }
+    fn send(&mut self, addr: &str, args: Vec<OscType>) {
+        let message = OscMessage {
+            addr: addr.to_owned(),
+            args: Some(args),
+        };
+        let packet = OscPacket::Message(message);
+        debug!("sending {:?}", packet);
         let bytes: Vec<u8> = encode(&packet).unwrap();
-        self.tx.try_send(bytes).unwrap();
+        match self.tx.try_send(bytes) {
+            Ok(()) => {
+            }
+            Err(b) => {
+                let full = b.is_full();
+                let disconnected = b.is_disconnected();
+                error!("full: {:?}, disconnected: {:?}", full, disconnected);
+            }
+        }
     }
     fn poll(&mut self) {
-            let buf = self.rx.recv().unwrap();
-            let packet = decode(&buf).unwrap();
-            debug!("⇐  {:?}", packet);
+        match self.rx.try_recv() {
+            Ok(buf) => {
+                let packet = decode(&buf).unwrap();
+                debug!("⇐  {:?}", packet);
 
-            match packet {
-                OscPacket::Message(message) => {
-                    if message.addr.starts_with("/serialosc") {
-                        if message.addr == "/serialosc/device" {
-                          info!("/serialosc/device");
-                        } else if message.addr == "/serialosc/add" {
-                            if let Some(args) = message.args {
-                                if let OscType::String(ref device_name) = args[0] {
-                                    info!("device added: {}", device_name);
-                                } else {
-                                    warn!("unexpected message for prefix {}", message.addr);
-                                }
-                            } else if message.addr == "/serialosc/remove" {
+                match packet {
+                    OscPacket::Message(message) => {
+                        if message.addr.starts_with("/serialosc") {
+                            if message.addr == "/serialosc/device" {
+                                info!("/serialosc/device");
+                            } else if message.addr == "/serialosc/add" {
                                 if let Some(args) = message.args {
                                     if let OscType::String(ref device_name) = args[0] {
-                                        info!("device removed: {}", device_name);
+                                        info!("device added: {}", device_name);
                                     } else {
                                         warn!("unexpected message for prefix {}", message.addr);
                                     }
-                                }
-                            }
-                        }
-                    } else if message.addr.starts_with("/sys") {
-                        if let Some(args) = message.args {
-                            if message.addr.starts_with("/sys/port") {
-                                if let OscType::Int(port) = args[0] {
-                                    info!("/sys/port {}", port);
-                                }
-                            } else if message.addr.starts_with("/sys/host") {
-                                if let OscType::String(ref host) = args[0] {
-                                    self.host = Some(host.to_string());
-                                }
-                            } else if message.addr.starts_with("/sys/id") {
-                                if let OscType::String(ref id) = args[0] {
-                                    self.id = Some(id.to_string());
-                                }
-                            } else if message.addr.starts_with("/sys/prefix") {
-                                if let OscType::String(ref prefix) = args[0] {
-                                    self.prefix = Some(prefix.to_string());
-                                }
-                            } else if message.addr.starts_with("/sys/rotation") {
-                                if let OscType::Int(rotation) = args[0] {
-                                    self.rotation = Some(rotation);
-                                }
-                            } else if message.addr.starts_with("/sys/size") {
-                                if let OscType::Int(x) = args[0] {
-                                    if let OscType::Int(y) = args[1] {
-                                        self.size = Some((x, y));
-                                    }
-                                }
-                            }
-                        }
-                    } else if message.addr.starts_with(PREFIX) {
-                        if let Some(args) = message.args {
-                            if message.addr.starts_with(&format!("{}/grid/key", PREFIX)) {
-                                if let OscType::Int(x)  = args[0] {
-                                    if let OscType::Int(y) = args[1] {
-                                        if let OscType::Int(v) = args[2] {
-                                            info!("Key: {}:{} {}", x, y, v);
+                                } else if message.addr == "/serialosc/remove" {
+                                    if let Some(args) = message.args {
+                                        if let OscType::String(ref device_name) = args[0] {
+                                            info!("device removed: {}", device_name);
+                                        } else {
+                                            warn!("unexpected message for prefix {}", message.addr);
                                         }
                                     }
                                 }
-                            } else if message.addr.starts_with(&format!("{}/grid/tilt", PREFIX)) {
-                                if let OscType::Int(n)  = args[0] {
-                                    if let OscType::Int(x) = args[1] {
-                                        if let OscType::Int(y) = args[2] {
-                                            if let OscType::Int(z) = args[2] {
-                                                info!("Tilt {} {},{},{}", n, x, y, z);
+                            }
+                        } else if message.addr.starts_with("/sys") {
+                            if let Some(args) = message.args {
+                                if message.addr.starts_with("/sys/port") {
+                                    if let OscType::Int(port) = args[0] {
+                                        info!("/sys/port {}", port);
+                                    }
+                                } else if message.addr.starts_with("/sys/host") {
+                                    if let OscType::String(ref host) = args[0] {
+                                        self.host = Some(host.to_string());
+                                    }
+                                } else if message.addr.starts_with("/sys/id") {
+                                    if let OscType::String(ref id) = args[0] {
+                                        self.id = Some(id.to_string());
+                                    }
+                                } else if message.addr.starts_with("/sys/prefix") {
+                                    if let OscType::String(ref prefix) = args[0] {
+                                        self.prefix = Some(prefix.to_string());
+                                    }
+                                } else if message.addr.starts_with("/sys/rotation") {
+                                    if let OscType::Int(rotation) = args[0] {
+                                        self.rotation = Some(rotation);
+                                    }
+                                } else if message.addr.starts_with("/sys/size") {
+                                    if let OscType::Int(x) = args[0] {
+                                        if let OscType::Int(y) = args[1] {
+                                            self.size = Some((x, y));
+                                        }
+                                    }
+                                }
+                            }
+                        } else if message.addr.starts_with(PREFIX) {
+                            if let Some(args) = message.args {
+                                if message.addr.starts_with(&format!("{}/grid/key", PREFIX)) {
+                                    if let OscType::Int(x)  = args[0] {
+                                        if let OscType::Int(y) = args[1] {
+                                            if let OscType::Int(v) = args[2] {
+                                                info!("Key: {}:{} {}", x, y, v);
                                             }
                                         }
                                     }
+                                } else if message.addr.starts_with(&format!("{}/grid/tilt", PREFIX)) {
+                                    if let OscType::Int(n)  = args[0] {
+                                        if let OscType::Int(x) = args[1] {
+                                            if let OscType::Int(y) = args[2] {
+                                                if let OscType::Int(z) = args[2] {
+                                                    info!("Tilt {} {},{},{}", n, x, y, z);
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    error!("not handled: {:?}", message.addr);
                                 }
-                            } else {
-                                println!("{:?}", message.addr);
                             }
                         }
                     }
-                }
-                OscPacket::Bundle(_bundle) => {
-                    panic!("wtf.");
+                    OscPacket::Bundle(_bundle) => {
+                        panic!("wtf.");
+                    }
                 }
             }
+            Err(std::sync::mpsc::TryRecvError::Empty) => { }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                error!("error tryrecv discon");
+            }
+        }
     }
 }
 
@@ -362,24 +442,26 @@ impl fmt::Debug for Monome {
     }
 }
 
-fn message(addr: &str, args: Vec<OscType>) -> OscPacket {
-    let message = OscMessage {
-        addr: addr.to_owned(),
-        args: Some(args),
-    };
-    OscPacket::Message(message)
-}
-
 fn main() {
     env_logger::init();
 
     let mut monome = Monome::new().unwrap();
 
-    let mut a = 0;
+    let mut i = 0;
+
+    monome.tilt_all(true);
 
     loop {
         monome.poll();
-        monome.send(a);
-        a = (a + 1) % 2;
+        monome.all(i);
+
+        i+=1;
+
+        if i > 16 {
+            i = 0;
+        }
+
+        let refresh = time::Duration::from_millis(32);
+        thread::sleep(refresh);
     }
 }
