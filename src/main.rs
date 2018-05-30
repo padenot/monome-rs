@@ -2,6 +2,7 @@
 extern crate futures;
 extern crate tokio;
 extern crate rosc;
+extern crate num;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
@@ -23,6 +24,10 @@ use rosc::{OscPacket, OscMessage, OscType};
 
 pub const PREFIX: &str = "/prefix";
 pub const SERIALOSC_PORT: i32 = 12002;
+
+fn toidx(x: i32, y: i32, width: i32) -> usize {
+  (y * width + x) as usize
+}
 
 struct Transport {
     device_port: i32,
@@ -170,7 +175,7 @@ impl Future for Transport {
                         Async::Ready(b) => {
                             let device_address = format!("127.0.0.1:{}", self.device_port);
                             let addr: SocketAddr = device_address.parse().unwrap();
-                            let amt = try_ready!(self.socket.poll_send_to(&mut b.unwrap(), &addr));
+                            let _amt = try_ready!(self.socket.poll_send_to(&mut b.unwrap(), &addr));
                         }
                         Async::NotReady => {
                             break;
@@ -232,6 +237,17 @@ fn message(addr: &str, args: Vec<OscType>) -> OscPacket {
     OscPacket::Message(message)
 }
 
+#[derive(Debug)]
+enum KeyDirection {
+    Up,
+    Down
+}
+
+enum MonomeEvent {
+    GridKey{x: i32, y: i32, direction: KeyDirection},
+    Tilt{n: i32, x: i32, y: i32, z: i32}
+}
+
 impl Monome {
     pub fn new() -> Result<Monome, String> {
         let (sender, receiver) = futures::sync::mpsc::channel(16);
@@ -269,7 +285,23 @@ impl Monome {
         self.send("/prefix/grid/led/level/all",
                   vec![OscType::Int(intensity)]);
     }
-    fn map(&mut self, x: i32, y: i32, masks: Vec<i8>) {
+    fn set_all(&mut self, leds: &Vec<u8>) {
+        // monome 128
+
+        for halves in 0..2 {
+            let mut masks: Vec<u8> = vec![0; 8];
+            for i in 0..8 { // for each row
+                let mut mask: u8 = 0;
+                for j in (0..8).rev() { // create mask
+                  let idx = toidx(halves * 8 + j, i, 16);
+                  mask = mask.rotate_left(1) | leds[idx];
+                }
+                masks[i as usize] = mask;
+            }
+            self.map(halves * 8, 0, masks);
+        }
+    }
+    fn map(&mut self, x: i32, y: i32, masks: Vec<u8>) {
         let mut args = Vec::with_capacity(10);
 
         args.push(OscType::Int(x));
@@ -280,7 +312,7 @@ impl Monome {
         }
         self.send("/prefix/grid/led/map", args);
     }
-    fn row(&mut self, x_offset: i32, y: i32, mask: i8) {
+    fn row(&mut self, x_offset: i32, y: i32, mask: u8) {
         let mut args = Vec::with_capacity(3);
 
         args.push(OscType::Int(x_offset));
@@ -292,7 +324,7 @@ impl Monome {
 
         self.send("/prefix/grid/led/row", args);
     }
-    fn col(&mut self, x: i32, y_offset: i32, mask: i8) {
+    fn col(&mut self, x: i32, y_offset: i32, mask: u8) {
         let mut args = Vec::with_capacity(4);
 
         args.push(OscType::Int(x));
@@ -330,7 +362,7 @@ impl Monome {
             }
         }
     }
-    fn poll(&mut self) {
+    fn poll(&mut self) -> Option<MonomeEvent> {
         match self.rx.try_recv() {
             Ok(buf) => {
                 let packet = decode(&buf).unwrap();
@@ -356,8 +388,9 @@ impl Monome {
                                             warn!("unexpected message for prefix {}", message.addr);
                                         }
                                     }
-                                }
+                                };
                             }
+                            None
                         } else if message.addr.starts_with("/sys") {
                             if let Some(args) = message.args {
                                 if message.addr.starts_with("/sys/port") {
@@ -388,6 +421,7 @@ impl Monome {
                                     }
                                 }
                             }
+                            None
                         } else if message.addr.starts_with(PREFIX) {
                             if let Some(args) = message.args {
                                 if message.addr.starts_with(&format!("{}/grid/key", PREFIX)) {
@@ -395,33 +429,43 @@ impl Monome {
                                         if let OscType::Int(y) = args[1] {
                                             if let OscType::Int(v) = args[2] {
                                                 info!("Key: {}:{} {}", x, y, v);
-                                            }
-                                        }
-                                    }
-                                } else if message.addr.starts_with(&format!("{}/grid/tilt", PREFIX)) {
+                                                return Some(MonomeEvent::GridKey {
+                                                    x, y, direction: if v == 1 { KeyDirection::Down } else { KeyDirection::Up }
+                                                });
+                                            } else { None }
+                                        } else  { None }
+                                    } else { None }
+                                } else if message.addr.starts_with(&format!("{}/tilt", PREFIX)) {
                                     if let OscType::Int(n)  = args[0] {
                                         if let OscType::Int(x) = args[1] {
                                             if let OscType::Int(y) = args[2] {
                                                 if let OscType::Int(z) = args[2] {
                                                     info!("Tilt {} {},{},{}", n, x, y, z);
-                                                }
-                                            }
-                                        }
-                                    }
+                                                    return Some(MonomeEvent::Tilt {
+                                                        n, x, y, z
+                                                    });
+                                                } else { None }
+                                            }  else { None }
+                                        } else { None }
+                                    } else { None }
                                 } else {
                                     error!("not handled: {:?}", message.addr);
+                                    return None;
                                 }
-                            }
-                        }
+                            } else { None }
+                        } else { None }
                     }
                     OscPacket::Bundle(_bundle) => {
                         panic!("wtf.");
                     }
                 }
             }
-            Err(std::sync::mpsc::TryRecvError::Empty) => { }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                return None;
+            }
             Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                 error!("error tryrecv discon");
+                return None;
             }
         }
     }
@@ -447,21 +491,53 @@ fn main() {
 
     let mut monome = Monome::new().unwrap();
 
-    let mut i = 0;
-
     monome.tilt_all(true);
 
-    loop {
-        monome.poll();
-        monome.all(i);
+    let mut grid: Vec<u8> = vec!(0; 128);
 
-        i+=1;
-
-        if i > 16 {
-            i = 0;
+    fn moveall(grid: &mut Vec<u8>, dx: i32, dy: i32) {
+        let mut grid2: Vec<u8> = vec!(0; 128);
+        for x in 0..16 {
+            for y in 0..8 {
+                grid2[toidx(num::clamp(x + dx, 0, 15),
+                            num::clamp(y + dy, 0, 7), 16)] = grid[toidx(x, y, 16)];
+            }
         }
 
-        let refresh = time::Duration::from_millis(32);
+        for x in 0..128 {
+            grid[x] = grid2[x];
+        }
+    }
+
+    let mut i = 0;
+
+    loop {
+        loop {
+            match monome.poll() {
+                Some(MonomeEvent::GridKey{x, y, direction}) => {
+                    match direction {
+                        KeyDirection::Down => {
+                            let idx = toidx(x, y, 16);
+                            grid[idx] = if grid[idx] == 1 { 0 } else { 1 }
+                        }
+                        _ => {}
+                    }
+                }
+                Some(MonomeEvent::Tilt{n: _n, x, y, z: _z}) => {
+                    if i % 10 == 0{
+                        moveall(&mut grid, (-x as f32 / 64.) as i32, (-y as f32/ 64.) as i32);
+                    }
+                    i+=1;
+                }
+                None => {
+                    break;
+                }
+            }
+        }
+
+        monome.set_all(&grid);
+
+        let refresh = time::Duration::from_millis(100);
         thread::sleep(refresh);
     }
 }
