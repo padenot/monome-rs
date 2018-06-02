@@ -32,6 +32,40 @@ fn toidx(x: i32, y: i32, width: i32) -> usize {
   (y * width + x) as usize
 }
 
+struct MonomeInfo {
+    port: Option<i32>,
+    host: Option<String>,
+    prefix: Option<String>,
+    id: Option<String>,
+    size: Option<(i32,i32)>,
+    rotation: Option<i32>
+}
+
+impl MonomeInfo {
+    fn new() -> MonomeInfo {
+        return MonomeInfo {
+            port: None,
+            host: None,
+            prefix: None,
+            id: None,
+            size: None,
+            rotation: None
+        }
+    }
+    fn complete(&self) -> bool {
+        self.port.is_some() &&
+            self.host.is_some() &&
+            self.prefix.is_some() &&
+            self.id.is_some() &&
+            self.size.is_some() &&
+            self.rotation.is_some()
+    }
+    fn fill(&mut self, packet: OscPacket) {
+        println!("{:?}", packet);
+    }
+}
+
+
 /// `Transport` implements the network input and output to and from serialosc, as well as the setup
 /// of the device.
 struct Transport {
@@ -157,8 +191,26 @@ impl Transport {
             }).wait()
         }).wait();
 
+
         match rv {
             Ok((socket, name, device_type, port)) => {
+                let mut info = MonomeInfo::new();
+
+                let socket = loop {
+                    let socket = socket.recv_dgram(vec![0u8; 1024])
+                                        .and_then(|(socket, data, _, _)| {
+                                            let packet = decode(&data).unwrap();
+                                            info.fill(packet);
+                                            Ok(socket)
+                                        }).wait().map(|socket| {
+                                            socket
+                                        }).unwrap();
+
+                    if info.complete() {
+                        break socket
+                    }
+                };
+
                 let (tx, rx) = channel();
                 Ok((Transport {
                     socket,
