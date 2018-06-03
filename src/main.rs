@@ -6,6 +6,8 @@ extern crate num;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
+extern crate rand;
+use rand::prelude::*;
 
 use std::io;
 use std::fmt;
@@ -75,7 +77,7 @@ impl Transport {
 
         let packet = message("/serialosc/list",
                              vec![OscType::String(server_ip),
-                             OscType::Int(i32::from(server_port))]);
+                                  OscType::Int(i32::from(server_port))]);
 
         let bytes: Vec<u8> = encode(&packet).unwrap();
 
@@ -292,6 +294,62 @@ pub enum MonomeEvent {
     }
 }
 
+/// Converts an to a Monome method argument to a OSC address fragment and suitble OscType,
+/// performing an eventual conversion.
+pub trait IntoAddrAndArgs<B> {
+    fn into_addr_frag_and_args(self) -> (String, B);
+}
+
+/// Used to make a call with an intensity value, adds the `"level/"` portion in the address.
+impl IntoAddrAndArgs<OscType> for i32 {
+    fn into_addr_frag_and_args(self) -> (String, OscType){
+        ("level/".to_string(), OscType::Int(self))
+    }
+}
+
+/// Used to make an on/off call, converts to 0 or 1.
+impl IntoAddrAndArgs<OscType> for bool {
+    fn into_addr_frag_and_args(self) -> (String, OscType) {
+        ("".to_string(), OscType::Int(if self { 1 } else { 0 }))
+    }
+}
+
+/// Used to convert vectors of integers for calls with an intensity value, adds the `"level/"`
+/// portion in the address.
+impl IntoAddrAndArgs<Vec<OscType>> for Vec<u8> {
+    fn into_addr_frag_and_args(self) -> (String, Vec<OscType>){
+        // TODO: error handling both valid: either 64 intensity values, or 8 masks
+        assert!(self.len() == 64 || self.len() == 8);
+        let mut osctype_vec = Vec::with_capacity(self.len());
+        for item in self.iter().map(|i| OscType::Int(*i as i32)) {
+            osctype_vec.push(item);
+        }
+        ("level/".to_string(), osctype_vec)
+    }
+}
+
+/// Used to convert vectors of bools for on/off calls, packs into a 8-bit integer mask.
+impl IntoAddrAndArgs<Vec<OscType>> for Vec<bool> {
+    fn into_addr_frag_and_args(self) -> (String, Vec<OscType>) {
+        // TODO: error handling
+        assert!(self.len() == 64);
+        let mut masks: Vec<u8> = vec![0; 8];
+        for i in 0..8 { // for each row
+            let mut mask: u8 = 0;
+            for j in (0..8).rev() { // create mask
+                let idx = toidx(j, i, 8);
+                mask = mask.rotate_left(1) | if self[idx] { 1 } else { 0 };
+            }
+            masks[i as usize] = mask;
+        }
+        let mut osctype_vec = Vec::with_capacity(8);
+        for item in masks.iter().map(|i| OscType::Int(*i as i32)) {
+            osctype_vec.push(item);
+        }
+        ("".to_string(), osctype_vec)
+    }
+}
+
 impl Monome {
     /// Sets up a monome, with a particular prefix
     ///
@@ -344,44 +402,50 @@ impl Monome {
     ///
     /// - `x` - the horizontal position of the led to set.
     /// - `y` - the vertical positino of the led to set.
-    /// - `on` - true to set a led On, false to set it Off.
+    /// - `arg` - either a bool, true to set a led On, false to set it Off, or a number between 0
+    /// and 16, 0 being led off, 16 being full led brightness.
     ///
     /// # Example
     ///
-    /// Set the led on the second row and second column to On:
+    /// Set the led on the second row and second column to On, and also the third row and second
+    /// column to mid-brightness:
     ///
     /// ```
     /// monome.set(1 /* 2nd, 0-indexed */,
     ///            1 /* 2nd, 0-indexed */,
     ///            true);
+    /// monome.set(1 /* 2nd, 0-indexed */,
+    ///            2 /* 3nd, 0-indexed */,
+    ///            8);
     /// ```
-    pub fn set(&mut self, x: i32, y: i32, on: bool) {
-        self.send("/grid/led/set",
+    pub fn set<A>(&mut self, x: i32, y: i32, arg: A)
+        where A: IntoAddrAndArgs<OscType> {
+        let (frag, arg) = arg.into_addr_frag_and_args();
+        self.send(&format!("/grid/led/{}set", frag).to_string(),
                   vec![OscType::Int(x),
                        OscType::Int(y),
-                       OscType::Int(if on { 1 } else { 0 })]);
+                       arg]);
     }
 
-    //fn all(&mut self, on: bool) {
-    //    self.send("/prefix/grid/led/all",
-    //              vec![OscType::Int(if on { 1 } else { 0 })]);
-    //}
     /// Set all led of the grid to an intensity
     ///
     /// # Arguments
     ///
-    /// * `intensity` - a number between 0 and 16, 0 being led off, and 16 being full led brightness.
+    /// * `intensity` - either a bool, true for led On or false for led Off, or a number between 0
+    /// and 16, 0 being led off, and 16 being full led brightness.
     ///
     /// # Example
     ///
-    /// On a grid, set all led to medium brightness:
+    /// On a grid, set all led to medium brightness, then turn it on:
     ///
     /// ```
     /// monome.all(8);
+    /// monome.all(false);
     /// ```
-    pub fn all(&mut self, intensity: i32) {
-        self.send("/grid/led/level/all",
-                  vec![OscType::Int(intensity)]);
+    pub fn all<A>(&mut self, arg: A)
+        where A: IntoAddrAndArgs<OscType> {
+        let (frag, arg) = arg.into_addr_frag_and_args();
+        self.send(&format!("/grid/led/{}all", frag).to_string(), vec![arg]);
     }
 
     /// Set all the leds of a monome in one call.
@@ -429,24 +493,34 @@ impl Monome {
     ///
     /// * `x_offset` - at which offset, that must be a multiple of 8, to set the quad.
     /// * `y_offset` - at which offset, that must be a multiple of 8, to set the quad.
-    /// * `masks` - a vector of 8 elements that is a mask representing the leds to light up.
+    /// * `masks` - a vector of 8 unsigned 8-bit integers that is a mask representing the leds to
+    /// light up, or a vector of 64 bools, true for led On, false for led Off, packed in row order,
+    /// or a vector of 64 integers between 0 and 15, for the brightness of each led, packed in
+    /// row order.
     ///
     /// # Example
     ///
-    /// On a monome 128, draw a triangle in the lower left half of the rightmost half.
+    /// On a monome 128, draw a triangle in the lower left half of the rightmost half, and a
+    /// gradient on the leftmost half.
     /// ```
-    /// monome.map(8, 0, vec![1, 3, 7, 15, 32, 63, 127, 255]);
+    /// let mut v: Vec<u8> = vec![0; 64];
+    /// for i in 0..64 {
+    ///     v[i] = i / 4;
+    /// }
+    /// monome.map(0, 0, v);
+    /// monome.map(8, 0, vec![1, 3, 7, 15, 32, 63, 127, 0b11111111]);
     /// ```
-    pub fn map(&mut self, x_offset: i32, y_offset: i32, masks: Vec<u8>) {
+    pub fn map<A>(&mut self, x_offset: i32, y_offset: i32, masks: A)
+        where A: IntoAddrAndArgs<Vec<OscType>> {
         let mut args = Vec::with_capacity(10);
+
+        let (frag, mut arg) = masks.into_addr_frag_and_args();
 
         args.push(OscType::Int(x_offset));
         args.push(OscType::Int(y_offset));
+        args.append(&mut arg);
 
-        for mask in masks.iter().map(|m| OscType::Int(*m as i32)) {
-            args.push(mask);
-        }
-        self.send("/grid/led/map", args);
+        self.send(&format!("/grid/led/{}map", frag), args);
     }
 
     /// Set a full row of a grid, using one or more 8-bit mask(s).
@@ -521,8 +595,6 @@ impl Monome {
     /// Enable or disable all tilt sensors (usually, there is only one), which allows receiving the
     /// `/<prefix>/tilt/` events, with the n,x,y,z coordinates as parameters.
     pub fn tilt_all(&mut self, on: bool) {
-
-
         self.send("/tilt/set", vec![OscType::Int(if on { 1 } else { 0 })]);
     }
 
@@ -724,6 +796,9 @@ fn main() {
 
     let mut i = 0;
 
+    let mut x = 0;
+    let mut y= 0;
+
     loop {
         loop {
             match monome.poll() {
@@ -748,9 +823,26 @@ fn main() {
             }
         }
 
-        monome.set_all(&grid);
+        // monome.set(x, y, x);
+        // x += 1;
+        // if (x == 16) {
+        //     x = 0;
+        //     y += 1;
+        //     if (y == 8) {
+        //         y = 0;
+        //     }
+        // }
+        let mut v: Vec<u8> = vec![0; 64];
+        let mut v2 = vec![false; 64];
+        for i in 0..64 {
+            v[i] = (random::<u8>() % 16) as u8;
+            v2[i] = random();
+        }
+        monome.map(0, 0, v);
+        monome.map(8, 0, v2);
 
-        let refresh = time::Duration::from_millis(100);
+        let refresh = time::Duration::from_millis(33);
+
         thread::sleep(refresh);
     }
 }
