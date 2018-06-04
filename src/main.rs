@@ -701,12 +701,63 @@ impl Monome {
         self.send("/tilt/set", vec![OscType::Int(if on { 1 } else { 0 })]);
     }
 
+    pub fn set_rotation(&mut self, rotation: i32) {
+        self.send_no_prefix("/sys/rotation", vec![OscType::Int(rotation)]);
+        self.rotation = rotation;
+    }
+
+    pub fn set_port(&mut self, port: i32) {
+        self.send_no_prefix("/sys/port", vec![OscType::Int(port)]);
+        self.port = port;
+    }
+
+    pub fn set_prefix(&mut self, prefix: String) {
+        self.send_no_prefix("/sys/prefix", vec![OscType::String(prefix.clone())]);
+        self.prefix = prefix;
+    }
+
+    pub fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    pub fn device_type(&self) -> String {
+        self.device_type.clone()
+    }
+
+    pub fn port(&self) -> i32 {
+        self.port
+    }
+
+    pub fn host(&self) -> String {
+        self.host.clone()
+    }
+
+    pub fn id(&self) -> String {
+        self.id.clone()
+    }
+
+    pub fn prefix(&self) -> String {
+        self.prefix.clone()
+    }
+
+    pub fn rotation(&self) -> i32 {
+        self.rotation
+    }
+
+    pub fn size(&self) -> (i32, i32) {
+        self.size
+    }
+
     /// Adds the prefix, packs the OSC message into an u8 vector and sends it to the transport.
     fn send(&mut self, addr: &str, args: Vec<OscType>) {
         let with_prefix = format!("{}{}", self.prefix, addr);
+        self.send_no_prefix(&with_prefix, args);
+    }
 
+    /// Adds the prefix, packs the OSC message into an u8 vector and sends it to the transport.
+    fn send_no_prefix(&mut self, addr: &str, args: Vec<OscType>) {
         let message = OscMessage {
-            addr: with_prefix.to_owned(),
+            addr: addr.to_owned(),
             args: Some(args),
         };
         let packet = OscPacket::Message(message);
