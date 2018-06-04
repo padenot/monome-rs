@@ -701,49 +701,54 @@ impl Monome {
         self.send("/tilt/set", vec![OscType::Int(if on { 1 } else { 0 })]);
     }
 
+    /// Set the rotation for this device. This is either 0, 90, 180 or 270
     pub fn set_rotation(&mut self, rotation: i32) {
         self.send_no_prefix("/sys/rotation", vec![OscType::Int(rotation)]);
         self.rotation = rotation;
     }
 
-    pub fn set_port(&mut self, port: i32) {
-        self.send_no_prefix("/sys/port", vec![OscType::Int(port)]);
-        self.port = port;
-    }
-
+    /// Set the prefix for this device.
     pub fn set_prefix(&mut self, prefix: String) {
         self.send_no_prefix("/sys/prefix", vec![OscType::String(prefix.clone())]);
         self.prefix = prefix;
     }
 
+    /// Get the name of this device.
     pub fn name(&self) -> String {
         self.name.clone()
     }
 
+    /// Get the type for this device (for example `"monome 128"`).
     pub fn device_type(&self) -> String {
         self.device_type.clone()
     }
 
+    /// Get the port for this device.
     pub fn port(&self) -> i32 {
         self.port
     }
 
+    /// Get the host for this device is at.
     pub fn host(&self) -> String {
         self.host.clone()
     }
 
+    /// Get the id of this device.
     pub fn id(&self) -> String {
         self.id.clone()
     }
 
+    /// Get the current prefix of this device.
     pub fn prefix(&self) -> String {
         self.prefix.clone()
     }
 
+    /// Get the current rotation of this device.
     pub fn rotation(&self) -> i32 {
         self.rotation
     }
 
+    /// Get the size of this device, as a `(width, height)`.
     pub fn size(&self) -> (i32, i32) {
         self.size
     }
@@ -929,6 +934,8 @@ fn main() {
     let mut x = 0;
     let mut y= 0;
 
+    println!("{:?}", monome);
+
     loop {
         loop {
             match monome.poll() {
@@ -952,6 +959,7 @@ fn main() {
                 }
             }
         }
+
 
         // monome.set(x, y, x);
         // x += 1;

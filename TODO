@@ -2,3 +2,5 @@
 - split into own crate
 - Non-poll based receiving
 - double check logging
+- finish trait for col, row, set_all
+- Maybe don't assume this is the only app, re-read the settings when asked
