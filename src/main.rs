@@ -32,6 +32,7 @@ fn toidx(x: i32, y: i32, width: i32) -> usize {
   (y * width + x) as usize
 }
 
+#[derive(Debug)]
 struct MonomeInfo {
     port: Option<i32>,
     host: Option<String>,
@@ -61,7 +62,44 @@ impl MonomeInfo {
             self.rotation.is_some()
     }
     fn fill(&mut self, packet: OscPacket) {
-        println!("{:?}", packet);
+        match packet {
+            OscPacket::Message(message) => {
+                if message.addr.starts_with("/sys") {
+                    if let Some(args) = message.args {
+                        if message.addr.starts_with("/sys/port") {
+                            if let OscType::Int(port) = args[0] {
+                                self.port = Some(port);
+                            }
+                        } else if message.addr.starts_with("/sys/host") {
+                            if let OscType::String(ref host) = args[0] {
+                                self.host = Some(host.to_string());
+                            }
+                        } else if message.addr.starts_with("/sys/id") {
+                            if let OscType::String(ref id) = args[0] {
+                                self.id = Some(id.to_string());
+                            }
+                        } else if message.addr.starts_with("/sys/prefix") {
+                            if let OscType::String(ref prefix) = args[0] {
+                                self.prefix = Some(prefix.to_string());
+                            }
+                        } else if message.addr.starts_with("/sys/rotation") {
+                            if let OscType::Int(rotation) = args[0] {
+                                self.rotation = Some(rotation);
+                            }
+                        } else if message.addr.starts_with("/sys/size") {
+                            if let OscType::Int(x) = args[0] {
+                                if let OscType::Int(y) = args[1] {
+                                    self.size = Some((x, y));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            OscPacket::Bundle(_bundle) => {
+                error!("Bundle during setup!?");
+            }
+        }
     }
 }
 
@@ -69,7 +107,7 @@ impl MonomeInfo {
 /// `Transport` implements the network input and output to and from serialosc, as well as the setup
 /// of the device.
 struct Transport {
-    /// The port for this device. This is automatically set to the first free port starting at
+    /// The port for this device. This is the to the first free port starting at
     /// 10000.
     device_port: i32,
     /// This is the socket with with we send and receive to and from the device.
@@ -81,148 +119,17 @@ struct Transport {
 }
 
 impl Transport {
-    /// Sets up a new monome object, and set its prefix to `prefix`.
-    pub fn new(serialosc_port: i32, prefix: &String, rrx: future_mpsc::Receiver<Vec<u8>>)
-        -> Result<(Transport, Receiver<Vec<u8>>, String, String, i32), String> {
-        // serialosc address, pretty safe to hardcode
-        let addr = format!("127.0.0.1:{}", serialosc_port).parse().unwrap();
-
-        // find a free port
-        let mut port = 10000;
-        let socket = loop {
-            let server_addr = format!("127.0.0.1:{}", port).parse().unwrap();
-            let bind_result = UdpSocket::bind(&server_addr);
-            match bind_result {
-                Ok(socket) => {
-                    break socket
-                }
-                Err(e) => {
-                    error!("bind error: {}", e.to_string());
-                    if port > 65536 {
-                        panic!("Could not bind socket: port exhausted");
-                    }
-                }
-            }
-            port += 1;
-        };
-
-        let server_port = socket.local_addr().unwrap().port();
-        let server_ip = socket.local_addr().unwrap().ip().to_string();
-
-        let packet = message("/serialosc/list",
-                             vec![OscType::String(server_ip),
-                                  OscType::Int(i32::from(server_port))]);
-
-        let bytes: Vec<u8> = encode(&packet).unwrap();
-
-        let rv = socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
-            socket.recv_dgram(vec![0u8; 1024]).map(|(socket, data, _, _)| {
-                let packet = decode(&data).unwrap();
-
-                let rv = match packet {
-                    OscPacket::Message(message) => {
-                        (||{
-                            if message.addr.starts_with("/serialosc") {
-                                if message.addr == "/serialosc/device" {
-                                    if let Some(args) = message.args {
-                                        if let OscType::String(ref name) = args[0] {
-                                            if let OscType::String(ref device_type) = args[1] {
-                                                if let OscType::Int(port) = args[2] {
-                                                    return Ok((name.clone(),
-                                                               device_type.clone(),
-                                                               port));
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            Err("Bad format")
-                        }
-                        )()
-                    }
-                    OscPacket::Bundle(_bundle) => {
-                        Err("Unexpected bundle received during setup")
-                    }
-                };
-
-                let (name, device_type, port): (String, String, i32) = rv.unwrap();
-
-                let device_address = format!("127.0.0.1:{}", port);
-                let add = device_address.parse();
-                let addr: SocketAddr = add.unwrap();
-
-                let packet = message("/sys/port",
-                                     vec![OscType::Int(i32::from(server_port))]);
-
-                let bytes: Vec<u8> = encode(&packet).unwrap();
-
-                let rv = socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
-                    let local_addr = socket.local_addr().unwrap().ip();
-                    let packet = message("/sys/host",
-                                         vec![OscType::String(local_addr.to_string())]);
-
-                    let bytes: Vec<u8> = encode(&packet).unwrap();
-
-                    socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
-                        let packet = message("/sys/prefix", vec![OscType::String(prefix.to_string())]);
-
-                        let bytes: Vec<u8> = encode(&packet).unwrap();
-                        socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
-                            let packet = message("/sys/info", vec![]);
-
-                            let bytes: Vec<u8> = encode(&packet).unwrap();
-                            socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
-                                // led flash
-                                let packet = message("/prefix/grid/led/all", vec![OscType::Int(1)]);
-                                let bytes: Vec<u8> = encode(&packet).unwrap();
-                                socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
-                                    let packet = message("/prefix/grid/led/all", vec![OscType::Int(0)]);
-                                    let bytes: Vec<u8> = encode(&packet).unwrap();
-                                    debug!("finished init");
-                                    socket.send_dgram(bytes, &addr)
-                                })
-                            })
-                        })
-                    })
-                }).wait();
-                let (socket, _) = rv.unwrap();
-                (socket, name, device_type, port)
-            }).wait()
-        }).wait();
-
-
-        match rv {
-            Ok((socket, name, device_type, port)) => {
-                let mut info = MonomeInfo::new();
-
-                let socket = loop {
-                    let socket = socket.recv_dgram(vec![0u8; 1024])
-                                        .and_then(|(socket, data, _, _)| {
-                                            let packet = decode(&data).unwrap();
-                                            info.fill(packet);
-                                            Ok(socket)
-                                        }).wait().map(|socket| {
-                                            socket
-                                        }).unwrap();
-
-                    if info.complete() {
-                        break socket
-                    }
-                };
-
-                let (tx, rx) = channel();
-                Ok((Transport {
-                    socket,
-                    device_port: port,
-                    tx: tx,
-                    rx: rrx
-                    }, rx, name, device_type, port))
-            }
-            Err(e) => {
-                Err(e.to_string())
-            }
-        }
+    pub fn new(device_port: i32,
+               socket: UdpSocket,
+               tx: Sender<Vec<u8>>,
+               rx: future_mpsc::Receiver<Vec<u8>>)
+        -> Transport {
+      return Transport {
+          device_port,
+          socket,
+          tx,
+          rx
+      }
     }
 }
 
@@ -288,15 +195,15 @@ pub struct Monome {
     /// The port at which this device is running at
     port: i32,
     /// The host for this device (usually localhost)
-    host: Option<String>,
+    host: String,
     /// The ID of this device
-    id: Option<String>,
+    id: String,
     /// The prefix set for this device
     prefix: String,
     /// The current rotation for this device. This can be 0, 90, 180 or 270.
-    rotation: Option<i32>,
+    rotation: i32,
     /// THe x and y size for this device.
-    size: Option<(i32, i32)>,
+    size: (i32, i32),
     /// A channel that allows receiving serialized OSC messages from a device.
     rx: Receiver<Vec<u8>>,
     /// A channel that allows sending serialized OSC messages to a device.
@@ -403,6 +310,142 @@ impl IntoAddrAndArgs<Vec<OscType>> for Vec<bool> {
 }
 
 impl Monome {
+    fn setup(serialosc_port: i32, prefix: &String)
+        -> Result<(MonomeInfo, UdpSocket, String, String, i32), String>
+    {
+        // serialosc address, pretty safe to hardcode
+        let addr = format!("127.0.0.1:{}", serialosc_port).parse().unwrap();
+
+        // find a free port
+        let mut port = 10000;
+        let socket = loop {
+            let server_addr = format!("127.0.0.1:{}", port).parse().unwrap();
+            let bind_result = UdpSocket::bind(&server_addr);
+            match bind_result {
+                Ok(socket) => {
+                    break socket
+                }
+                Err(e) => {
+                    error!("bind error: {}", e.to_string());
+                    if port > 65536 {
+                        panic!("Could not bind socket: port exhausted");
+                    }
+                }
+            }
+            port += 1;
+        };
+
+        let server_port = socket.local_addr().unwrap().port();
+        let server_ip = socket.local_addr().unwrap().ip().to_string();
+
+        let packet = message("/serialosc/list",
+                             vec![OscType::String(server_ip),
+                                  OscType::Int(i32::from(server_port))]);
+
+        let bytes: Vec<u8> = encode(&packet).unwrap();
+
+        let rv = socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
+            socket.recv_dgram(vec![0u8; 1024]).map(|(socket, data, _, _)| {
+                let packet = decode(&data).unwrap();
+
+                let rv = match packet {
+                    OscPacket::Message(message) => {
+                        (||{
+                            if message.addr.starts_with("/serialosc") {
+                                if message.addr == "/serialosc/device" {
+                                    if let Some(args) = message.args {
+                                        if let OscType::String(ref name) = args[0] {
+                                            if let OscType::String(ref device_type) = args[1] {
+                                                if let OscType::Int(port) = args[2] {
+                                                    return Ok((name.clone(),
+                                                               device_type.clone(),
+                                                               port));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Err("Bad format")
+                        }
+                        )()
+                    }
+                    OscPacket::Bundle(_bundle) => {
+                        Err("Unexpected bundle received during setup")
+                    }
+                };
+
+                let (name, device_type, port): (String, String, i32) = rv.unwrap();
+
+                let device_address = format!("127.0.0.1:{}", port);
+                let add = device_address.parse();
+                let addr: SocketAddr = add.unwrap();
+
+                let packet = message("/sys/port",
+                                     vec![OscType::Int(i32::from(server_port))]);
+
+                let bytes: Vec<u8> = encode(&packet).unwrap();
+
+                let rv = socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
+                    let local_addr = socket.local_addr().unwrap().ip();
+                    let packet =
+                        message("/sys/host",
+                                vec![OscType::String(local_addr.to_string())]);
+
+                    let bytes: Vec<u8> = encode(&packet).unwrap();
+
+                    socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
+                        let packet =
+                            message("/sys/prefix",
+                                    vec![OscType::String(prefix.to_string())]);
+
+                        let bytes: Vec<u8> = encode(&packet).unwrap();
+                        socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
+                            let packet = message("/sys/info", vec![]);
+
+                            let bytes: Vec<u8> = encode(&packet).unwrap();
+                            socket.send_dgram(bytes, &addr)
+                        })
+                    })
+                }).wait();
+                let (socket, _) = rv.unwrap();
+                (socket, name, device_type, port)
+            }).wait()
+        }).wait();
+
+
+        match rv {
+            Ok((mut socket, name, device_type, port)) => {
+                let mut info = MonomeInfo::new();
+
+                // Loop until we've received all the /sys/info messages
+                let socket = loop {
+                    socket = socket.recv_dgram(vec![0u8; 1024])
+                                        .and_then(|(socket, data, _, _)| {
+                                            let packet = decode(&data).unwrap();
+                                            info.fill(packet);
+                                            Ok(socket)
+                                        }).wait().map(|socket| {
+                                            socket
+                                        }).unwrap();
+
+                    if info.complete() {
+                        break socket
+                    }
+                };
+
+
+                Ok((info,
+                    socket,
+                    name,
+                    device_type,
+                    port))
+            }
+            Err(e) => {
+                Err(e.to_string())
+            }
+        }
+    }
     /// Sets up a monome, with a particular prefix
     ///
     /// # Arguments
@@ -426,11 +469,19 @@ impl Monome {
     /// }
     /// ```
     pub fn new(prefix: String) -> Result<Monome, String> {
-        let (sender, receiver) = futures::sync::mpsc::channel(16);
-        let (transport, rx, name, device_type, port) = Transport::new(SERIALOSC_PORT, &prefix, receiver).unwrap();
+        let (sender, receiver) = futures::sync::mpsc::channel(16);;
+        let (tx, rx) = channel();
+
+        let (info,
+             socket,
+             name,
+             device_type,
+             device_port) = Monome::setup(SERIALOSC_PORT, &prefix).unwrap();
+
+        let t = Transport::new(device_port, socket, tx, receiver);
 
         thread::spawn(move || {
-            tokio::run(transport.map_err(|e| error!("server error = {:?}", e)));
+            tokio::run(t.map_err(|e| error!("server error = {:?}", e)));
         });
 
         let monome = Monome {
@@ -438,12 +489,12 @@ impl Monome {
             rx: rx,
             name: name,
             device_type: device_type,
-            host: None,
-            id: None,
-            port: port,
+            host: info.host.unwrap(),
+            id: info.id.unwrap(),
+            port: device_port,
             prefix: prefix,
-            rotation: None,
-            size: None
+            rotation: info.rotation.unwrap(),
+            size: info.size.unwrap()
         };
         return Ok(monome);
     }
@@ -729,35 +780,7 @@ impl Monome {
                             }
                             None
                         } else if message.addr.starts_with("/sys") {
-                            if let Some(args) = message.args {
-                                if message.addr.starts_with("/sys/port") {
-                                    if let OscType::Int(port) = args[0] {
-                                        info!("/sys/port {}", port);
-                                    }
-                                } else if message.addr.starts_with("/sys/host") {
-                                    if let OscType::String(ref host) = args[0] {
-                                        self.host = Some(host.to_string());
-                                    }
-                                } else if message.addr.starts_with("/sys/id") {
-                                    if let OscType::String(ref id) = args[0] {
-                                        self.id = Some(id.to_string());
-                                    }
-                                } else if message.addr.starts_with("/sys/prefix") {
-                                    if let OscType::String(ref prefix) = args[0] {
-                                        self.prefix = prefix.to_string();
-                                    }
-                                } else if message.addr.starts_with("/sys/rotation") {
-                                    if let OscType::Int(rotation) = args[0] {
-                                        self.rotation = Some(rotation);
-                                    }
-                                } else if message.addr.starts_with("/sys/size") {
-                                    if let OscType::Int(x) = args[0] {
-                                        if let OscType::Int(y) = args[1] {
-                                            self.size = Some((x, y));
-                                        }
-                                    }
-                                }
-                            }
+                            debug!("/sys received: {:?}", message);
                             None
                         } else if message.addr.starts_with(&self.prefix) {
                             if let Some(args) = message.args {
@@ -814,12 +837,12 @@ impl fmt::Debug for Monome {
          self.name,
          self.device_type,
          self.port,
-         self.host.as_ref().unwrap_or(&String::from("?")),
-         self.id.as_ref().unwrap_or(&String::from("?")),
+         self.host,
+         self.id,
          self.prefix,
-         self.rotation.unwrap_or(0).to_string(),
-         self.size.unwrap_or((0,0)).0,
-         self.size.unwrap_or((0,0)).1)
+         self.rotation,
+         self.size.0,
+         self.size.1)
     }
 }
 

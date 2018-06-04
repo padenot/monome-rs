@@ -1,6 +1,4 @@
-- intensity with a trait
 - add/remove devices
 - split into own crate
-- receive size before returning, remove options
 - Non-poll based receiving
 - double check logging
