@@ -804,72 +804,7 @@ impl Monome {
     pub fn poll(&mut self) -> Option<MonomeEvent> {
         match self.rx.try_recv() {
             Ok(buf) => {
-                let packet = decode(&buf).unwrap();
-                debug!("⇦ {:?}", packet);
-
-                match packet {
-                    OscPacket::Message(message) => {
-                        if message.addr.starts_with("/serialosc") {
-                            if message.addr == "/serialosc/device" {
-                                info!("/serialosc/device");
-                            } else if message.addr == "/serialosc/add" {
-                                if let Some(args) = message.args {
-                                    if let OscType::String(ref device_name) = args[0] {
-                                        info!("device added: {}", device_name);
-                                    } else {
-                                        warn!("unexpected message for prefix {}", message.addr);
-                                    }
-                                } else if message.addr == "/serialosc/remove" {
-                                    if let Some(args) = message.args {
-                                        if let OscType::String(ref device_name) = args[0] {
-                                            info!("device removed: {}", device_name);
-                                        } else {
-                                            warn!("unexpected message for prefix {}", message.addr);
-                                        }
-                                    }
-                                };
-                            }
-                            None
-                        } else if message.addr.starts_with("/sys") {
-                            debug!("/sys received: {:?}", message);
-                            None
-                        } else if message.addr.starts_with(&self.prefix) {
-                            if let Some(args) = message.args {
-                                if message.addr.starts_with(&format!("{}/grid/key", self.prefix)) {
-                                    if let OscType::Int(x)  = args[0] {
-                                        if let OscType::Int(y) = args[1] {
-                                            if let OscType::Int(v) = args[2] {
-                                                info!("Key: {}:{} {}", x, y, v);
-                                                return Some(MonomeEvent::GridKey {
-                                                    x, y, direction: if v == 1 { KeyDirection::Down } else { KeyDirection::Up }
-                                                });
-                                            } else { None }
-                                        } else  { None }
-                                    } else { None }
-                                } else if message.addr.starts_with(&format!("{}/tilt", self.prefix)) {
-                                    if let OscType::Int(n)  = args[0] {
-                                        if let OscType::Int(x) = args[1] {
-                                            if let OscType::Int(y) = args[2] {
-                                                if let OscType::Int(z) = args[2] {
-                                                    info!("Tilt {} {},{},{}", n, x, y, z);
-                                                    return Some(MonomeEvent::Tilt {
-                                                        n, x, y, z
-                                                    });
-                                                } else { None }
-                                            }  else { None }
-                                        } else { None }
-                                    } else { None }
-                                } else {
-                                    error!("not handled: {:?}", message.addr);
-                                    return None;
-                                }
-                            } else { None }
-                        } else { None }
-                    }
-                    OscPacket::Bundle(_bundle) => {
-                        panic!("wtf.");
-                    }
-                }
+                self.parse(&buf)
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => {
                 return None;
@@ -877,6 +812,75 @@ impl Monome {
             Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                 error!("error tryrecv discon");
                 return None;
+            }
+        }
+    }
+
+    fn parse(&self, buf: &Vec<u8>) -> Option<MonomeEvent> {
+        let packet = decode(buf).unwrap();
+        debug!("⇦ {:?}", packet);
+
+        match packet {
+            OscPacket::Message(message) => {
+                if message.addr.starts_with("/serialosc") {
+                    if message.addr == "/serialosc/device" {
+                        info!("/serialosc/device");
+                    } else if message.addr == "/serialosc/add" {
+                        if let Some(args) = message.args {
+                            if let OscType::String(ref device_name) = args[0] {
+                                info!("device added: {}", device_name);
+                            } else {
+                                warn!("unexpected message for prefix {}", message.addr);
+                            }
+                        } else if message.addr == "/serialosc/remove" {
+                            if let Some(args) = message.args {
+                                if let OscType::String(ref device_name) = args[0] {
+                                    info!("device removed: {}", device_name);
+                                } else {
+                                    warn!("unexpected message for prefix {}", message.addr);
+                                }
+                            }
+                        };
+                    }
+                    None
+                } else if message.addr.starts_with("/sys") {
+                    debug!("/sys received: {:?}", message);
+                    None
+                } else if message.addr.starts_with(&self.prefix) {
+                    if let Some(args) = message.args {
+                        if message.addr.starts_with(&format!("{}/grid/key", self.prefix)) {
+                            if let OscType::Int(x)  = args[0] {
+                                if let OscType::Int(y) = args[1] {
+                                    if let OscType::Int(v) = args[2] {
+                                        info!("Key: {}:{} {}", x, y, v);
+                                        return Some(MonomeEvent::GridKey {
+                                            x, y, direction: if v == 1 { KeyDirection::Down } else { KeyDirection::Up }
+                                        });
+                                    } else { None }
+                                } else  { None }
+                            } else { None }
+                        } else if message.addr.starts_with(&format!("{}/tilt", self.prefix)) {
+                            if let OscType::Int(n)  = args[0] {
+                                if let OscType::Int(x) = args[1] {
+                                    if let OscType::Int(y) = args[2] {
+                                        if let OscType::Int(z) = args[2] {
+                                            info!("Tilt {} {},{},{}", n, x, y, z);
+                                            return Some(MonomeEvent::Tilt {
+                                                n, x, y, z
+                                            });
+                                        } else { None }
+                                    }  else { None }
+                                } else { None }
+                            } else { None }
+                        } else {
+                            error!("not handled: {:?}", message.addr);
+                            return None;
+                        }
+                    } else { None }
+                } else { None }
+            }
+            OscPacket::Bundle(_bundle) => {
+                panic!("wtf.");
             }
         }
     }
