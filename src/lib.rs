@@ -2,17 +2,13 @@
 extern crate futures;
 extern crate tokio;
 extern crate rosc;
-extern crate num;
 #[macro_use]
 extern crate log;
-extern crate env_logger;
-extern crate rand;
-use rand::prelude::*;
 
 use std::io;
 use std::fmt;
 use std::net::SocketAddr;
-use std::{thread, time};
+use std::{thread};
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 use tokio::prelude::*;
@@ -256,40 +252,44 @@ pub enum MonomeEvent {
 /// Converts an to a Monome method argument to a OSC address fragment and suitble OscType,
 /// performing an eventual conversion.
 pub trait IntoAddrAndArgs<B> {
-    fn into_addr_frag_and_args(self) -> (String, B);
+    fn into_addr_frag_and_args(&self) -> (String, B);
 }
 
 /// Used to make a call with an intensity value, adds the `"level/"` portion in the address.
 impl IntoAddrAndArgs<OscType> for i32 {
-    fn into_addr_frag_and_args(self) -> (String, OscType){
-        ("level/".to_string(), OscType::Int(self))
+    fn into_addr_frag_and_args(&self) -> (String, OscType){
+        ("level/".to_string(), OscType::Int(*self))
     }
 }
 
 /// Used to make an on/off call, converts to 0 or 1.
 impl IntoAddrAndArgs<OscType> for bool {
-    fn into_addr_frag_and_args(self) -> (String, OscType) {
-        ("".to_string(), OscType::Int(if self { 1 } else { 0 }))
+    fn into_addr_frag_and_args(&self) -> (String, OscType) {
+        ("".to_string(), OscType::Int(if *self { 1 } else { 0 }))
     }
 }
 
 /// Used to convert vectors of integers for calls with an intensity value, adds the `"level/"`
 /// portion in the address.
 impl IntoAddrAndArgs<Vec<OscType>> for Vec<u8> {
-    fn into_addr_frag_and_args(self) -> (String, Vec<OscType>){
-        // TODO: error handling both valid: either 64 intensity values, or 8 masks
-        assert!(self.len() == 64 || self.len() == 8);
+    fn into_addr_frag_and_args(&self) -> (String, Vec<OscType>){
+        // TODO: error handling both valid: either 64 or more intensity values, or 8 masks
+        assert!(self.len() >= 64 || self.len() == 8);
         let mut osctype_vec = Vec::with_capacity(self.len());
         for item in self.iter().map(|i| OscType::Int(*i as i32)) {
             osctype_vec.push(item);
         }
-        ("level/".to_string(), osctype_vec)
+        if self.len() == 8 { // masks
+            ("".to_string(), osctype_vec)
+        } else {
+            ("level/".to_string(), osctype_vec)
+        }
     }
 }
 
 /// Used to convert vectors of bools for on/off calls, packs into a 8-bit integer mask.
 impl IntoAddrAndArgs<Vec<OscType>> for Vec<bool> {
-    fn into_addr_frag_and_args(self) -> (String, Vec<OscType>) {
+    fn into_addr_frag_and_args(&self) -> (String, Vec<OscType>) {
         // TODO: error handling
         assert!(self.len() == 64);
         let mut masks: Vec<u8> = vec![0; 8];
@@ -569,23 +569,23 @@ impl Monome {
     /// }
     /// monome.set_all(grid);
     /// ```
-    pub fn set_all(&mut self, leds: &Vec<u8>) {
+    pub fn set_all(&mut self, leds: &Vec<bool>) {
         let width_in_quad = if leds.len() == 64 { 1 } else { 2 };
         let height_in_quad = if leds.len() == 256 { 2 } else { 1 };
         let width = width_in_quad * 8;
 
+        let mut masks: Vec<u8> = vec![0; 8];
         for a in 0..height_in_quad {
             for b in 0..width_in_quad {
-                let mut masks: Vec<u8> = vec![0; 8];
                 for i in 0..8 { // for each row
                     let mut mask: u8 = 0;
                     for j in (0..8).rev() { // create mask
                       let idx = toidx(b * 8 + j, a * 8 + i, width);
-                      mask = mask.rotate_left(1) | leds[idx];
+                      mask = mask.rotate_left(1) | if leds[idx] { 1 } else { 0 };
                     }
                     masks[i as usize] = mask;
                 }
-                self.map(b * 8, a * 8, masks);
+                self.map(b * 8, a * 8, &masks);
             }
         }
     }
@@ -613,7 +613,7 @@ impl Monome {
     /// monome.map(0, 0, v);
     /// monome.map(8, 0, vec![1, 3, 7, 15, 32, 63, 127, 0b11111111]);
     /// ```
-    pub fn map<A>(&mut self, x_offset: i32, y_offset: i32, masks: A)
+    pub fn map<A>(&mut self, x_offset: i32, y_offset: i32, masks: &A)
         where A: IntoAddrAndArgs<Vec<OscType>> {
         let mut args = Vec::with_capacity(10);
 
@@ -698,7 +698,7 @@ impl Monome {
     /// Enable or disable all tilt sensors (usually, there is only one), which allows receiving the
     /// `/<prefix>/tilt/` events, with the n,x,y,z coordinates as parameters.
     pub fn tilt_all(&mut self, on: bool) {
-        self.send("/tilt/set", vec![OscType::Int(if on { 1 } else { 0 })]);
+        self.send("/tilt/set", vec![OscType::Int(0), OscType::Int(if on { 1 } else { 0 })]);
     }
 
     /// Set the rotation for this device. This is either 0, 90, 180 or 270
@@ -903,84 +903,5 @@ impl fmt::Debug for Monome {
          self.rotation,
          self.size.0,
          self.size.1)
-    }
-}
-
-fn main() {
-    env_logger::init();
-
-    let mut monome = Monome::new("/prefix".to_string()).unwrap();
-
-    monome.tilt_all(true);
-
-    let mut grid: Vec<u8> = vec!(0; 128);
-
-    fn moveall(grid: &mut Vec<u8>, dx: i32, dy: i32) {
-        let mut grid2: Vec<u8> = vec!(0; 128);
-        for x in 0..16 {
-            for y in 0..8 {
-                grid2[toidx(num::clamp(x + dx, 0, 15),
-                            num::clamp(y + dy, 0, 7), 16)] = grid[toidx(x, y, 16)];
-            }
-        }
-
-        for x in 0..128 {
-            grid[x] = grid2[x];
-        }
-    }
-
-    let mut i = 0;
-
-    let mut x = 0;
-    let mut y= 0;
-
-    println!("{:?}", monome);
-
-    loop {
-        loop {
-            match monome.poll() {
-                Some(MonomeEvent::GridKey{x, y, direction}) => {
-                    match direction {
-                        KeyDirection::Down => {
-                            let idx = toidx(x, y, 16);
-                            grid[idx] = if grid[idx] == 1 { 0 } else { 1 }
-                        }
-                        _ => {}
-                    }
-                }
-                Some(MonomeEvent::Tilt{n: _n, x, y, z: _z}) => {
-                    if i % 10 == 0{
-                        moveall(&mut grid, (-x as f32 / 64.) as i32, (-y as f32/ 64.) as i32);
-                    }
-                    i+=1;
-                }
-                None => {
-                    break;
-                }
-            }
-        }
-
-
-        // monome.set(x, y, x);
-        // x += 1;
-        // if (x == 16) {
-        //     x = 0;
-        //     y += 1;
-        //     if (y == 8) {
-        //         y = 0;
-        //     }
-        // }
-        let mut v: Vec<u8> = vec![0; 64];
-        let mut v2 = vec![false; 64];
-        for i in 0..64 {
-            v[i] = (random::<u8>() % 16) as u8;
-            v2[i] = random();
-        }
-        monome.map(0, 0, v);
-        monome.map(8, 0, v2);
-
-        let refresh = time::Duration::from_millis(33);
-
-        thread::sleep(refresh);
     }
 }

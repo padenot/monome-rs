@@ -3,6 +3,10 @@ name = "monome-rs"
 version = "0.1.0"
 authors = ["Paul Adenot <paul@paul.cx>"]
 
+[lib]
+name = "monome"
+path = "src/lib.rs"
+
 [dependencies]
 tokio = "0.1"
 rosc = "0.1"
