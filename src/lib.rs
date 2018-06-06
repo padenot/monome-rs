@@ -291,7 +291,7 @@ impl IntoAddrAndArgs<Vec<OscType>> for Vec<u8> {
 impl IntoAddrAndArgs<Vec<OscType>> for Vec<bool> {
     fn into_addr_frag_and_args(&self) -> (String, Vec<OscType>) {
         // TODO: error handling
-        assert!(self.len() == 64);
+        assert!(self.len() >= 64);
         let mut masks: Vec<u8> = vec![0; 8];
         for i in 0..8 { // for each row
             let mut mask: u8 = 0;
@@ -555,7 +555,7 @@ impl Monome {
     ///
     /// # Arguments
     ///
-    /// * `leds` - a vector of 64 elements for a monome 64, 128 elements for a monome 128, and 256
+    /// * `leds` - a vector of 64 booleans for a monome 64, 128 elements for a monome 128, and 256
     /// elements for a monome 256, packed in row order.
     ///
     /// # Example
@@ -563,16 +563,18 @@ impl Monome {
     /// One a monome 128, do a checkerboard pattern:
     ///
     /// ```
-    /// let grid: Vec<u8> = vec!(0; 128);
+    /// let grid: Vec<bool> = vec!(false; 128);
     /// for i in 0..128 {
-    ///   grid[i] = (i + 1) % 2;
+    ///   grid[i] = (i + 1) % 2 == 0;
     /// }
     /// monome.set_all(grid);
     /// ```
-    pub fn set_all(&mut self, leds: &Vec<bool>) {
-        let width_in_quad = if leds.len() == 64 { 1 } else { 2 };
-        let height_in_quad = if leds.len() == 256 { 2 } else { 1 };
-        let width = width_in_quad * 8;
+    pub fn set_all(&mut self, leds: &Vec<bool>)
+    {
+        let width_in_quad = self.size.0 / 8;
+        let height_in_quad = self.size.1 / 8;
+        let width = self.size.0;
+        let quad_size: i32 = 8;
 
         let mut masks: Vec<u8> = vec![0; 8];
         for a in 0..height_in_quad {
@@ -580,12 +582,54 @@ impl Monome {
                 for i in 0..8 { // for each row
                     let mut mask: u8 = 0;
                     for j in (0..8).rev() { // create mask
-                      let idx = toidx(b * 8 + j, a * 8 + i, width);
+                      let idx = toidx(b * quad_size + j, a * quad_size + i, width);
                       mask = mask.rotate_left(1) | if leds[idx] { 1 } else { 0 };
                     }
                     masks[i as usize] = mask;
                 }
                 self.map(b * 8, a * 8, &masks);
+            }
+        }
+    }
+
+    /// Set all the leds of a monome in one call.
+    ///
+    /// # Arguments
+    ///
+    /// * `leds` - a vector of 64 integers in [0, 15] for a monome 64, 128 elements for a monome
+    /// 128, and 256 elements for a monome 256, packed in row order.
+    ///
+    /// # Example
+    ///
+    /// One a monome 128, do a gradient
+    ///
+    /// ```
+    /// let mut grid: Vec<u8> = vec!(0; 128);
+    /// for i in 0..8 {
+    ///     for j in 0..16 {
+    ///         grid[i * 16 + j] = (2 * i) as u8;
+    ///     }
+    /// }
+    /// monome.set_all_intensity(&grid);
+    /// ```
+    pub fn set_all_intensity(&mut self, leds: &Vec<u8>)
+    {
+        let width_in_quad = self.size.0 / 8;
+        let height_in_quad = self.size.1 / 8;
+        let width = self.size.0;
+        let quad_size = 8;
+
+        let mut quad: Vec<u8> = vec![0; 64];
+        for a in 0..height_in_quad {
+            for b in 0..width_in_quad {
+                // Get the quad into an array
+                for i in 0..8 as i32 {
+                    for j in 0..8 as i32 {
+                        let idx = toidx(b * quad_size + j, a * quad_size + i, width);
+                        quad[(i * 8 + j) as usize] = leds[idx];
+                    }
+                }
+                self.map(b * 8, a * 8, &quad);
             }
         }
     }

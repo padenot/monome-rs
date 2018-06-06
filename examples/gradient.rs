@@ -25,13 +25,15 @@ fn main() {
             }
         }
 
-        println!("===========");
+        let mut grid: Vec<u8> = vec!(0; 128);
         for i in 0..8 {
-            for j in 0..8 {
-                print!("{} ", v[i * 8 + j]);
+            for j in 0..16 {
+                grid[i * 16 + j] =  (sp / ((i + 1) as isize)) as u8;
             }
-            println!("");
         }
+
+        // both methods are equivalent
+        monome.set_all_intensity(&grid);
 
         monome.map(0, 0, &v);
         monome.map(8, 0, &v);
