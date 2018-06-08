@@ -349,6 +349,7 @@ impl Monome {
                 let packet = decode(&data).unwrap();
 
                 let rv = match packet {
+                    // tryloop here: it might be that we receive something else
                     OscPacket::Message(message) => {
                         (||{
                             if message.addr.starts_with("/serialosc") {
