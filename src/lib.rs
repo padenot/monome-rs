@@ -983,8 +983,8 @@ mod tests {
     #[test]
     fn setup() {
         thread::spawn(|| {
-            let FAKE_DEVICE_PORT = 1234;
-            let device_addr = format!("127.0.0.1:{}", FAKE_DEVICE_PORT).parse().unwrap();
+            let fake_device_port = 1234;
+            let device_addr = format!("127.0.0.1:{}", fake_device_port).parse().unwrap();
             let device_socket = UdpSocket::bind(&device_addr).unwrap();
 
             let serialosc_addr = format!("127.0.0.1:{}", SERIALOSC_PORT).parse().unwrap();
@@ -1067,7 +1067,7 @@ mod tests {
             ];
 
             let message_args = vec![
-                vec![OscType::Int(FAKE_DEVICE_PORT)],
+                vec![OscType::Int(fake_device_port)],
                 vec![OscType::String("127.0.0.1".into())],
                 vec![OscType::String("monome blabla".into())],
                 vec![OscType::String("/plop".into())],
