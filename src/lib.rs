@@ -971,20 +971,20 @@ impl fmt::Debug for Monome {
 mod tests {
     use Monome;
     use message;
-    use std::{thread, time};
+    use std::thread;
     use tokio::net::UdpSocket;
     use SERIALOSC_PORT;
     use rosc::decoder::decode;
     use rosc::encoder::encode;
-    use rosc::{OscPacket, OscMessage, OscType};
+    use rosc::{OscPacket, OscType};
     use tokio::prelude::*;
 
     #[test]
     fn setup() {
-        let j = thread::spawn(|| {
+        thread::spawn(|| {
             let FAKE_DEVICE_PORT = 1234;
             let device_addr = format!("127.0.0.1:{}", FAKE_DEVICE_PORT).parse().unwrap();
-            let mut device_socket = UdpSocket::bind(&device_addr).unwrap();
+            let device_socket = UdpSocket::bind(&device_addr).unwrap();
 
             let serialosc_addr = format!("127.0.0.1:{}", SERIALOSC_PORT).parse().unwrap();
             let serialosc_socket = UdpSocket::bind(&serialosc_addr).unwrap();
@@ -993,7 +993,7 @@ mod tests {
 
             let msg = match packet {
                 OscPacket::Message(m) => { m }
-                OscPacket::Bundle(b) => { panic!("unexpected bundle") }
+                OscPacket::Bundle(_b) => { panic!("unexpected bundle") }
             };
             assert!(msg.addr == "/serialosc/list");
             assert!(msg.args.is_some());
@@ -1021,7 +1021,7 @@ mod tests {
 
                 let msg = match packet {
                     OscPacket::Message(m) => { m }
-                    OscPacket::Bundle(b) => { panic!("unexpected bundle") }
+                    OscPacket::Bundle(_b) => { panic!("unexpected bundle") }
                 };
 
                 assert!(msg.addr == expected_addr);
@@ -1031,6 +1031,7 @@ mod tests {
 
             let (device_socket, args)  = receive_from_app_and_expect(device_socket, "/sys/port".into());
             let port = if let OscType::Int(port) = args.unwrap()[0] {
+                assert!(port == 10000);
                 port
             } else {
                 panic!("bad port");
@@ -1052,7 +1053,7 @@ mod tests {
                 panic!("bad prefix");
             };
             assert!(prefix == "/plop");
-            let (device_socket, args) = receive_from_app_and_expect(device_socket, "/sys/info".into());
+            let (_device_socket, args) = receive_from_app_and_expect(device_socket, "/sys/info".into());
             assert!(args.is_none());
 
             let message_addrs = vec![
@@ -1083,5 +1084,6 @@ mod tests {
         });
 
         let m = Monome::new("/plop".to_string());
+        println!("{:?}", m);
     }
 }
