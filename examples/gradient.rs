@@ -2,14 +2,12 @@ extern crate env_logger;
 extern crate monome;
 use std::{thread, time};
 
-use monome::{Monome, MonomeEvent, KeyDirection};
+use monome::Monome;
 
 fn main() {
     env_logger::init();
 
     let mut monome = Monome::new("/prefix".to_string()).unwrap();
-
-    let mut grid: Vec<u8> = vec!(0; 128);
 
     println!("{:?}", monome);
 

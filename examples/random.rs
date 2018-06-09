@@ -5,11 +5,7 @@ extern crate num;
 use rand::prelude::*;
 use std::{thread, time};
 
-use monome::{Monome, MonomeEvent, KeyDirection};
-
-fn toidx(x: i32, y: i32, width: i32) -> usize {
-  (y * width + x) as usize
-}
+use monome::Monome;
 
 fn main() {
     env_logger::init();

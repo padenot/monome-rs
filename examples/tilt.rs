@@ -2,7 +2,6 @@ extern crate env_logger;
 extern crate monome;
 extern crate rand;
 extern crate num;
-use rand::prelude::*;
 use std::{thread, time};
 
 use monome::{Monome, MonomeEvent, KeyDirection};
@@ -35,9 +34,6 @@ fn main() {
     }
 
     let mut i = 0;
-
-    let mut x = 0;
-    let mut y= 0;
 
     println!("{:?}", monome);
 
