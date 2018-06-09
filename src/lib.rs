@@ -735,21 +735,25 @@ impl Monome {
     /// right:
     ///
     /// ```
+    /// extern crate monome;
+    ///   use monome::Monome;
+    ///   let monome = Monome::new("/prefix");
     ///   monome.col(2 /* 3rd column, 0-indexed */,
     ///              8 /* bottom half */,
     ///              vec![0b01010101u8] /* every other led, 85 in decimal */);
     /// ```
-    pub fn col(&mut self, x: i32, y_offset: i32, masks: Vec<u8>) {
-        let mut args = Vec::with_capacity(4);
+    pub fn col<A>(&mut self, x: i32, y_offset: i32, leds: &A)
+    where A: IntoAddrAndArgs<Vec<OscType>> {
+        let mut args = Vec::with_capacity((2 + self.size.0 / 8) as usize);
+
+        let (frag, mut arg) = leds.into_addr_frag_and_args();
 
         args.push(OscType::Int(x));
         args.push(OscType::Int(y_offset));
 
-        for mask in masks.iter().map(|m| OscType::Int(*m as i32)) {
-            args.push(mask);
-        }
+        args.append(&mut arg);
 
-        self.send("/grid/led/col", args);
+        self.send(&format!("/grid/led/{}col", frag), args);
     }
 
     /// Enable or disable all tilt sensors (usually, there is only one), which allows receiving the
