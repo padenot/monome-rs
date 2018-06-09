@@ -313,9 +313,6 @@ impl Monome {
     fn setup(serialosc_port: i32, prefix: &String)
         -> Result<(MonomeInfo, UdpSocket, String, String, i32), String>
     {
-        // serialosc address, pretty safe to hardcode
-        let addr = format!("127.0.0.1:{}", serialosc_port).parse().unwrap();
-
         // find a free port
         let mut port = 10000;
         let socket = loop {
@@ -327,7 +324,7 @@ impl Monome {
                 }
                 Err(e) => {
                     error!("bind error: {}", e.to_string());
-                    if port > 65536 {
+                    if port > 65536 {;
                         panic!("Could not bind socket: port exhausted");
                     }
                 }
@@ -344,108 +341,103 @@ impl Monome {
 
         let bytes: Vec<u8> = encode(&packet).unwrap();
 
-        let rv = socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
-            socket.recv_dgram(vec![0u8; 1024]).map(|(socket, data, _, _)| {
-                let packet = decode(&data).unwrap();
+        // serialosc address, pretty safe to hardcode
+        let addr = format!("127.0.0.1:{}", serialosc_port).parse().unwrap();
+        let (mut socket, _) = socket.send_dgram(bytes, &addr).wait().unwrap();
+        // loop until we find the device list message. It can be that some other messages are
+        // received in the meantime, for example, tilt messages, or keypresses. Ignore them
+        // here.
+        let rv = loop {
+            let (s, data, _, _) = socket.recv_dgram(vec![0u8; 1024]).wait().unwrap();
+            socket = s;
+            let packet = decode(&data).unwrap();
 
-                let rv = match packet {
-                    // tryloop here: it might be that we receive something else
-                    OscPacket::Message(message) => {
-                        (||{
-                            if message.addr.starts_with("/serialosc") {
-                                if message.addr == "/serialosc/device" {
-                                    if let Some(args) = message.args {
-                                        if let OscType::String(ref name) = args[0] {
-                                            if let OscType::String(ref device_type) = args[1] {
-                                                if let OscType::Int(port) = args[2] {
-                                                    return Ok((name.clone(),
-                                                               device_type.clone(),
-                                                               port));
-                                                }
+            let rv = match packet {
+                // tryloop here: it might be that we receive something else
+                OscPacket::Message(message) => {
+                    (||{
+                        if message.addr.starts_with("/serialosc") {
+                            if message.addr == "/serialosc/device" {
+                                if let Some(args) = message.args {
+                                    if let OscType::String(ref name) = args[0] {
+                                        if let OscType::String(ref device_type) = args[1] {
+                                            if let OscType::Int(port) = args[2] {
+                                                return Ok((name.clone(),
+                                                device_type.clone(),
+                                                port));
                                             }
                                         }
                                     }
                                 }
                             }
-                            Err("Bad format")
                         }
-                        )()
+                        Err("Bad format")
                     }
-                    OscPacket::Bundle(_bundle) => {
-                        Err("Unexpected bundle received during setup")
-                    }
-                };
-
-                let (name, device_type, port): (String, String, i32) = rv.unwrap();
-
-                let device_address = format!("127.0.0.1:{}", port);
-                let add = device_address.parse();
-                let addr: SocketAddr = add.unwrap();
-
-                let packet = message("/sys/port",
-                                     vec![OscType::Int(i32::from(server_port))]);
-
-                let bytes: Vec<u8> = encode(&packet).unwrap();
-
-                let rv = socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
-                    let local_addr = socket.local_addr().unwrap().ip();
-                    let packet =
-                        message("/sys/host",
-                                vec![OscType::String(local_addr.to_string())]);
-
-                    let bytes: Vec<u8> = encode(&packet).unwrap();
-
-                    socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
-                        let packet =
-                            message("/sys/prefix",
-                                    vec![OscType::String(prefix.to_string())]);
-
-                        let bytes: Vec<u8> = encode(&packet).unwrap();
-                        socket.send_dgram(bytes, &addr).and_then(|(socket, _)| {
-                            let packet = message("/sys/info", vec![]);
-
-                            let bytes: Vec<u8> = encode(&packet).unwrap();
-                            socket.send_dgram(bytes, &addr)
-                        })
-                    })
-                }).wait();
-                let (socket, _) = rv.unwrap();
-                (socket, name, device_type, port)
-            }).wait()
-        }).wait();
-
-
-        match rv {
-            Ok((mut socket, name, device_type, port)) => {
-                let mut info = MonomeInfo::new();
-
-                // Loop until we've received all the /sys/info messages
-                let socket = loop {
-                    socket = socket.recv_dgram(vec![0u8; 1024])
-                                        .and_then(|(socket, data, _, _)| {
-                                            let packet = decode(&data).unwrap();
-                                            info.fill(packet);
-                                            Ok(socket)
-                                        }).wait().map(|socket| {
-                                            socket
-                                        }).unwrap();
-
-                    if info.complete() {
-                        break socket
-                    }
-                };
-
-
-                Ok((info,
-                    socket,
-                    name,
-                    device_type,
-                    port))
+                    )()
+                }
+                OscPacket::Bundle(_bundle) => {
+                    Err("Unexpected bundle received during setup")
+                }
+            };
+            match rv {
+                Ok(rv) => {
+                    break (socket, rv);
+                }
+                Err(_) => {
+                }
             }
-            Err(e) => {
-                Err(e.to_string())
+        };
+
+        let (socket, (name, device_type, port)) = rv;
+
+        let device_address = format!("127.0.0.1:{}", port);
+        let add = device_address.parse();
+        let addr: SocketAddr = add.unwrap();
+
+        let packet = message("/sys/port",
+                             vec![OscType::Int(i32::from(server_port))]);
+
+        let bytes: Vec<u8> = encode(&packet).unwrap();
+
+        let (socket, _) = socket.send_dgram(bytes, &addr).wait().unwrap();
+        let local_addr = socket.local_addr().unwrap().ip();
+        let packet =
+            message("/sys/host",
+                    vec![OscType::String(local_addr.to_string())]);
+
+        let bytes: Vec<u8> = encode(&packet).unwrap();
+
+        let (socket, _) = socket.send_dgram(bytes, &addr).wait().unwrap();
+        let packet =
+            message("/sys/prefix",
+                    vec![OscType::String(prefix.to_string())]);
+
+        let bytes: Vec<u8> = encode(&packet).unwrap();
+        let (socket, _) = socket.send_dgram(bytes, &addr).wait().unwrap();
+        let packet = message("/sys/info", vec![]);
+
+        let bytes: Vec<u8> = encode(&packet).unwrap();
+        let (mut socket, _) = socket.send_dgram(bytes, &addr).wait().unwrap();
+
+        let mut info = MonomeInfo::new();
+
+        // Loop until we've received all the /sys/info messages
+        let socket = loop {
+            socket = socket.recv_dgram(vec![0u8; 1024])
+                .and_then(|(socket, data, _, _)| {
+                    let packet = decode(&data).unwrap();
+                    info.fill(packet);
+                    Ok(socket)
+                }).wait().map(|socket| {
+                    socket
+                }).unwrap();
+
+            if info.complete() {
+                break socket
             }
-        }
+        };
+
+        Ok((info, socket, name, device_type, port))
     }
     /// Sets up a monome, with a particular prefix
     ///
@@ -458,6 +450,7 @@ impl Monome {
     /// Set up a monome, with a prefix of "/prefix":
     ///
     /// ```
+    /// use Monome;
     /// let m = new Monome("/prefix");
     ///
     /// match m {
@@ -948,5 +941,124 @@ impl fmt::Debug for Monome {
          self.rotation,
          self.size.0,
          self.size.1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use Monome;
+    use message;
+    use std::{thread, time};
+    use tokio::net::UdpSocket;
+    use SERIALOSC_PORT;
+    use rosc::decoder::decode;
+    use rosc::encoder::encode;
+    use rosc::{OscPacket, OscMessage, OscType};
+    use tokio::prelude::*;
+
+    #[test]
+    fn setup() {
+        let j = thread::spawn(|| {
+            let FAKE_DEVICE_PORT = 1234;
+            let device_addr = format!("127.0.0.1:{}", FAKE_DEVICE_PORT).parse().unwrap();
+            let mut device_socket = UdpSocket::bind(&device_addr).unwrap();
+
+            let serialosc_addr = format!("127.0.0.1:{}", SERIALOSC_PORT).parse().unwrap();
+            let serialosc_socket = UdpSocket::bind(&serialosc_addr).unwrap();
+            let (socket, data, _, _) = serialosc_socket.recv_dgram(vec![0u8; 1024]).wait().unwrap();
+            let packet = decode(&data).unwrap();
+
+            let msg = match packet {
+                OscPacket::Message(m) => { m }
+                OscPacket::Bundle(b) => { panic!("unexpected bundle") }
+            };
+            assert!(msg.addr == "/serialosc/list");
+            assert!(msg.args.is_some());
+
+            let app_port = if let OscType::Int(port) = msg.args.unwrap()[1] {
+                port
+            } else {
+                panic!("bad message");
+            };
+
+            let packet = message("/serialosc/device",
+                                 vec![OscType::String("monome grid test".into()),
+                                      OscType::String("m123123".into()),
+                                      OscType::Int(1234)]);
+
+            let bytes: Vec<u8> = encode(&packet).unwrap();
+
+            let app_addr = format!("127.0.0.1:{}", app_port).parse().unwrap();
+            let (mut socket, _) = socket.send_dgram(bytes, &app_addr).wait().unwrap();
+
+
+            fn receive_from_app_and_expect(socket: UdpSocket, expected_addr: String) -> (UdpSocket, Option<Vec<OscType>>) {
+                let (socket, data, _, _) = socket.recv_dgram(vec![0u8; 1024]).wait().unwrap();
+                let packet = decode(&data).unwrap();
+
+                let msg = match packet {
+                    OscPacket::Message(m) => { m }
+                    OscPacket::Bundle(b) => { panic!("unexpected bundle") }
+                };
+
+                assert!(msg.addr == expected_addr);
+
+                (socket, msg.args)
+            }
+
+            let (device_socket, args)  = receive_from_app_and_expect(device_socket, "/sys/port".into());
+            let port = if let OscType::Int(port) = args.unwrap()[0] {
+                port
+            } else {
+                panic!("bad port");
+            };
+            assert!(port == 10000);
+            let (device_socket, args) = receive_from_app_and_expect(device_socket, "/sys/host".into());
+            let argss = args.unwrap();
+            let host = if let OscType::String(ref host) = argss[0] {
+                host
+            } else {
+                panic!("bad host");
+            };
+            assert!(host == "127.0.0.1");
+            let (device_socket, args) = receive_from_app_and_expect(device_socket, "/sys/prefix".into());
+            let argss = args.unwrap();
+            let prefix = if let OscType::String(ref prefix) = argss[0] {
+                prefix
+            } else {
+                panic!("bad prefix");
+            };
+            assert!(prefix == "/plop");
+            let (device_socket, args) = receive_from_app_and_expect(device_socket, "/sys/info".into());
+            assert!(args.is_none());
+
+            let message_addrs = vec![
+              "/sys/port",
+              "/sys/host",
+              "/sys/id",
+              "/sys/prefix",
+              "/sys/rotation",
+              "/sys/size"
+            ];
+
+            let message_args = vec![
+                vec![OscType::Int(FAKE_DEVICE_PORT)],
+                vec![OscType::String("127.0.0.1".into())],
+                vec![OscType::String("monome blabla".into())],
+                vec![OscType::String("/plop".into())],
+                vec![OscType::Int(0)],
+                vec![OscType::Int(16), OscType::Int(8)]
+            ];
+
+            assert!(message_addrs.len() == message_args.len());
+
+            for i in 0..message_addrs.len() {
+                let packet = message(message_addrs[i], message_args[i].clone());
+                let bytes: Vec<u8> = encode(&packet).unwrap();
+                socket = socket.send_dgram(bytes, &app_addr).map(|(socket, _)| { socket }).wait().unwrap();
+            }
+        });
+
+        let m = Monome::new("/plop".to_string());
     }
 }
