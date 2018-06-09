@@ -106,7 +106,7 @@ struct Transport {
     socket: UdpSocket,
     /// This is the channel we use to forward the received OSC messages to the client object.
     tx: Sender<Vec<u8>>,
-    /// This is where Transport receives the OSX messages to send.
+    /// This is where Transport receives the OSC messages to send.
     rx: future_mpsc::Receiver<Vec<u8>>,
 }
 
