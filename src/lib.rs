@@ -450,8 +450,9 @@ impl Monome {
     /// Set up a monome, with a prefix of "/prefix":
     ///
     /// ```
-    /// use Monome;
-    /// let m = new Monome("/prefix");
+    /// extern crate monome;
+    /// use monome::Monome;
+    /// let m = Monome::new("/prefix");
     ///
     /// match m {
     ///   Ok(monome) => {
@@ -508,6 +509,9 @@ impl Monome {
     /// column to mid-brightness:
     ///
     /// ```
+    /// extern crate monome;
+    /// use monome::Monome;
+    /// let monome = Monome::new("/prefix");
     /// monome.set(1 /* 2nd, 0-indexed */,
     ///            1 /* 2nd, 0-indexed */,
     ///            true);
@@ -536,6 +540,9 @@ impl Monome {
     /// On a grid, set all led to medium brightness, then turn it on:
     ///
     /// ```
+    /// extern crate monome;
+    /// use monome::Monome;
+    /// let monome = Monome::new("/prefix");
     /// monome.all(8);
     /// monome.all(false);
     /// ```
@@ -557,6 +564,9 @@ impl Monome {
     /// One a monome 128, do a checkerboard pattern:
     ///
     /// ```
+    /// extern crate monome;
+    /// use monome::Monome;
+    /// let monome = Monome::new("/prefix");
     /// let grid: Vec<bool> = vec!(false; 128);
     /// for i in 0..128 {
     ///   grid[i] = (i + 1) % 2 == 0;
@@ -598,13 +608,16 @@ impl Monome {
     /// One a monome 128, do a gradient
     ///
     /// ```
+    /// use monome::Monome;
+    ///
+    /// let mut m = Monome::new("/prefix".into()).unwrap();
     /// let mut grid: Vec<u8> = vec!(0; 128);
     /// for i in 0..8 {
     ///     for j in 0..16 {
     ///         grid[i * 16 + j] = (2 * i) as u8;
     ///     }
     /// }
-    /// monome.set_all_intensity(&grid);
+    /// m.set_all_intensity(&grid);
     /// ```
     pub fn set_all_intensity(&mut self, leds: &Vec<u8>)
     {
@@ -644,6 +657,9 @@ impl Monome {
     /// On a monome 128, draw a triangle in the lower left half of the rightmost half, and a
     /// gradient on the leftmost half.
     /// ```
+    /// extern crate monome;
+    /// use monome::Monome;
+    /// let monome = Monome::new("/prefix");
     /// let mut v: Vec<u8> = vec![0; 64];
     /// for i in 0..64 {
     ///     v[i] = i / 4;
@@ -681,7 +697,10 @@ impl Monome {
     /// On a monome 128, light up every other led of the right half of the 3rd  row:
     ///
     /// ```
-    ///   monome.col(8 /* rightmost half */
+    /// extern crate monome;
+    ///   use monome::Monome;
+    ///   let monome = Monome::new("/prefix");
+    ///   monome.col(8 /* rightmost half */,
     ///              2 /* 3rd row, 0 indexed */,
     ///              vec![0b01010101u8] /* every other led, 85 in decimal */);
     /// ```
