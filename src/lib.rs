@@ -674,9 +674,8 @@ impl Monome {
     /// 64, and can be 8 for a 128 or 256.
     /// * `y` - which row to set, 0-indexed. This must be lower than the number of rows of the
     /// device.
-    /// * `masks` - the list of masks that determine the pattern to light on for a particular 8 led
-    /// long row. This vector MUST be one element long for monome 64, and for a monome 128 and 256
-    /// if `x_offset` is 8, two elements long for monome 128 and 256 if `y_offset` is 0.
+    /// * `leds` - either the list of masks that determine the pattern to light on for a particular 8 led
+    /// long section, or a vector of either int or bool, one element for each led.
     ///
     /// # Example
     ///
@@ -713,9 +712,8 @@ impl Monome {
     /// device.
     /// * `y_offset` - at which 8 button offset to start setting the leds. This is always 0 for a
     /// 64 and 128, can be 8 for a 256.
-    /// * `masks` - the list of masks that determine the pattern to light on for a particular 8 led
-    /// long column. This vector MUST be one element long for monome 64 and 128, and 256 if
-    /// `y_offset` is 0, two elements long for monome 256 if `y_offset` is 8.
+    /// * `leds` - either the list of masks that determine the pattern to light on for a particular 8 led
+    /// long section, or a vector of either int or bool, one element for each led.
     ///
     /// # Example
     ///
