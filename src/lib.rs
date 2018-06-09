@@ -704,17 +704,18 @@ impl Monome {
     ///              2 /* 3rd row, 0 indexed */,
     ///              vec![0b01010101u8] /* every other led, 85 in decimal */);
     /// ```
-    pub fn row(&mut self, x_offset: i32, y: i32, masks: Vec<u8>) {
-        let mut args = Vec::with_capacity(3);
+    pub fn row<A>(&mut self, x_offset: i32, y: i32, leds: &A)
+    where A: IntoAddrAndArgs<Vec<OscType>> {
+        let mut args = Vec::with_capacity((2 + self.size.1 / 8) as usize);
 
         args.push(OscType::Int(x_offset));
         args.push(OscType::Int(y));
 
-        for mask in masks.iter().map(|m| OscType::Int(*m as i32)) {
-            args.push(mask);
-        }
+        let (frag, mut arg) = leds.into_addr_frag_and_args();
 
-        self.send("/grid/led/row", args);
+        args.append(&mut arg);
+
+        self.send(&format!("/grid/led/{}row", frag), args);
     }
 
     /// Set a full column of a grid, using one or more 8-bit mask(s).
