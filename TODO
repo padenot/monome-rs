@@ -1,5 +1,4 @@
 - add/remove devices
-- split into own crate
 - Non-poll based receiving
 - double check logging
 - finish trait for col, row, set_all
