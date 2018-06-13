@@ -290,8 +290,14 @@ impl IntoAddrAndArgs<Vec<OscType>> for [u8] {
     }
 }
 
-/// Used to convert vectors of bools for on/off calls, packs into a 8-bit integer mask.
 impl IntoAddrAndArgs<Vec<OscType>> for Vec<bool> {
+    fn as_addr_frag_and_args(&self) -> (String, Vec<OscType>) {
+        (&**self).as_addr_frag_and_args()
+    }
+}
+
+/// Used to convert vectors of bools for on/off calls, packs into a 8-bit integer mask.
+impl IntoAddrAndArgs<Vec<OscType>> for [bool] {
     fn as_addr_frag_and_args(&self) -> (String, Vec<OscType>) {
         // TODO: error handling
         assert!(self.len() >= 64);
