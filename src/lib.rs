@@ -533,7 +533,6 @@ impl Monome {
     /// On a grid, set all led to medium brightness, then turn it on:
     ///
     /// ```
-    /// extern crate monome;
     /// use monome::Monome;
     /// let monome = Monome::new("/prefix");
     /// monome.all(8);
