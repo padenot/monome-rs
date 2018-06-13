@@ -475,13 +475,13 @@ impl Monome {
 
         let monome = Monome {
             tx: sender,
-            rx: rx,
-            name: name,
-            device_type: device_type,
+            rx,
+            name,
+            device_type,
             host: info.host.unwrap(),
             id: info.id.unwrap(),
             port: device_port,
-            prefix: prefix,
+            prefix,
             rotation: info.rotation.unwrap(),
             size: info.size.unwrap(),
         };
