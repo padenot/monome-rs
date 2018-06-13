@@ -459,9 +459,12 @@ impl Monome {
     ///   }
     /// }
     /// ```
-    pub fn new(prefix: String) -> Result<Monome, String> {
+    pub fn new<S>(prefix: S) -> Result<Monome, String>
+    where S: Into<String> {
         let (sender, receiver) = futures::sync::mpsc::channel(16);
         let (tx, rx) = channel();
+
+        let prefix = prefix.into();
 
         let (info, socket, name, device_type, device_port) = Monome::setup(SERIALOSC_PORT, &prefix)
             .unwrap();
@@ -840,8 +843,12 @@ impl Monome {
     /// # Example
     ///
     /// ```
+    /// extern crate monome;
+    /// use monome::{Monome, MonomeEvent, KeyDirection};
+    /// let m = Monome::new("/prefix".into());
+    ///
     /// loop {
-    ///     match monome.poll() {
+    ///     match m.poll() {
     ///         Some(MonomeEvent::GridKey{x, y, direction}) => {
     ///             match direction {
     ///                 KeyDirection::Down => {
