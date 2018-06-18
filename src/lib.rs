@@ -345,8 +345,8 @@ impl Monome {
         let server_ip = socket.local_addr().unwrap().ip().to_string();
 
         let packet = build_osc_message("/serialosc/list",
-                             vec![OscType::String(server_ip),
-                                  OscType::Int(i32::from(server_port))]);
+                                       vec![OscType::String(server_ip),
+                                            OscType::Int(i32::from(server_port))]);
 
         let bytes: Vec<u8> = encode(&packet).unwrap();
 
@@ -368,9 +368,7 @@ impl Monome {
                                 if let OscType::String(ref name) = args[0] {
                                     if let OscType::String(ref device_type) = args[1] {
                                         if let OscType::Int(port) = args[2] {
-                                            return Ok((name.clone(),
-                                            device_type.clone(),
-                                            port));
+                                            return Ok((name.clone(), device_type.clone(), port));
                                         }
                                     }
                                 }
@@ -397,20 +395,36 @@ impl Monome {
 
         let packet = build_osc_message("/sys/port", vec![OscType::Int(i32::from(server_port))]);
         let bytes: Vec<u8> = encode(&packet).unwrap();
-        let socket = socket.send_dgram(bytes, &addr).wait().map(|(s, _)| s).unwrap();
+        let socket = socket
+            .send_dgram(bytes, &addr)
+            .wait()
+            .map(|(s, _)| s)
+            .unwrap();
 
         let local_addr = socket.local_addr().unwrap().ip();
         let packet = build_osc_message("/sys/host", vec![OscType::String(local_addr.to_string())]);
         let bytes: Vec<u8> = encode(&packet).unwrap();
-        let socket = socket.send_dgram(bytes, &addr).wait().map(|(s, _)| s).unwrap();
+        let socket = socket
+            .send_dgram(bytes, &addr)
+            .wait()
+            .map(|(s, _)| s)
+            .unwrap();
 
         let packet = build_osc_message("/sys/prefix", vec![OscType::String(prefix.to_string())]);
         let bytes: Vec<u8> = encode(&packet).unwrap();
-        let socket = socket.send_dgram(bytes, &addr).wait().map(|(s, _)| s).unwrap();
+        let socket = socket
+            .send_dgram(bytes, &addr)
+            .wait()
+            .map(|(s, _)| s)
+            .unwrap();
 
         let packet = build_osc_message("/sys/info", vec![]);
         let bytes: Vec<u8> = encode(&packet).unwrap();
-        let mut socket = socket.send_dgram(bytes, &addr).wait().map(|(s, _)| s).unwrap();
+        let mut socket = socket
+            .send_dgram(bytes, &addr)
+            .wait()
+            .map(|(s, _)| s)
+            .unwrap();
 
         let mut info = MonomeInfo::new();
 
@@ -459,7 +473,8 @@ impl Monome {
     /// }
     /// ```
     pub fn new<S>(prefix: S) -> Result<Monome, String>
-    where S: Into<String> {
+        where S: Into<String>
+    {
         let (sender, receiver) = futures::sync::mpsc::channel(16);
         let (tx, rx) = channel();
 
@@ -1028,9 +1043,9 @@ mod tests {
             };
 
             let packet = build_osc_message("/serialosc/device",
-                                 vec![OscType::String("monome grid test".into()),
-                                      OscType::String("m123123".into()),
-                                      OscType::Int(1234)]);
+                                           vec![OscType::String("monome grid test".into()),
+                                                OscType::String("m123123".into()),
+                                                OscType::Int(1234)]);
 
             let bytes: Vec<u8> = encode(&packet).unwrap();
 
