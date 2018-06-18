@@ -23,7 +23,7 @@ use rosc::{OscPacket, OscMessage, OscType};
 /// The port at which serialosc is running.
 pub const SERIALOSC_PORT: i32 = 12002;
 
-/// From a x and y position, and a stride, returns the offset at which the elment is in an array.
+/// From a x and y position, and a stride, returns the offset at which the element is in an array.
 fn toidx(x: i32, y: i32, width: i32) -> usize {
     (y * width + x) as usize
 }
@@ -362,19 +362,16 @@ impl Monome {
             let packet = decode(&data).unwrap();
 
             let rv = match packet {
-                // tryloop here: it might be that we receive something else
                 OscPacket::Message(message) => {
                     (|| {
-                        if message.addr.starts_with("/serialosc") {
-                            if message.addr == "/serialosc/device" {
-                                if let Some(args) = message.args {
-                                    if let OscType::String(ref name) = args[0] {
-                                        if let OscType::String(ref device_type) = args[1] {
-                                            if let OscType::Int(port) = args[2] {
-                                                return Ok((name.clone(),
-                                                           device_type.clone(),
-                                                           port));
-                                            }
+                        if message.addr == "/serialosc/device" {
+                            if let Some(args) = message.args {
+                                if let OscType::String(ref name) = args[0] {
+                                    if let OscType::String(ref device_type) = args[1] {
+                                        if let OscType::Int(port) = args[2] {
+                                            return Ok((name.clone(),
+                                            device_type.clone(),
+                                            port));
                                         }
                                     }
                                 }
@@ -400,24 +397,21 @@ impl Monome {
         let addr: SocketAddr = add.unwrap();
 
         let packet = message("/sys/port", vec![OscType::Int(i32::from(server_port))]);
-
         let bytes: Vec<u8> = encode(&packet).unwrap();
+        let socket = socket.send_dgram(bytes, &addr).wait().map(|(s, _)| s).unwrap();
 
-        let (socket, _) = socket.send_dgram(bytes, &addr).wait().unwrap();
         let local_addr = socket.local_addr().unwrap().ip();
         let packet = message("/sys/host", vec![OscType::String(local_addr.to_string())]);
-
         let bytes: Vec<u8> = encode(&packet).unwrap();
+        let socket = socket.send_dgram(bytes, &addr).wait().map(|(s, _)| s).unwrap();
 
-        let (socket, _) = socket.send_dgram(bytes, &addr).wait().unwrap();
         let packet = message("/sys/prefix", vec![OscType::String(prefix.to_string())]);
-
         let bytes: Vec<u8> = encode(&packet).unwrap();
-        let (socket, _) = socket.send_dgram(bytes, &addr).wait().unwrap();
+        let socket = socket.send_dgram(bytes, &addr).wait().map(|(s, _)| s).unwrap();
+
         let packet = message("/sys/info", vec![]);
-
         let bytes: Vec<u8> = encode(&packet).unwrap();
-        let (mut socket, _) = socket.send_dgram(bytes, &addr).wait().unwrap();
+        let mut socket = socket.send_dgram(bytes, &addr).wait().map(|(s, _)| s).unwrap();
 
         let mut info = MonomeInfo::new();
 
@@ -511,7 +505,7 @@ impl Monome {
     /// ```
     /// extern crate monome;
     /// use monome::Monome;
-    /// let monome = Monome::new("/prefix");
+    /// let mut monome = Monome::new("/prefix").unwrap();
     /// monome.set(1 /* 2nd, 0-indexed */,
     ///            1 /* 2nd, 0-indexed */,
     ///            true);
@@ -540,7 +534,7 @@ impl Monome {
     ///
     /// ```
     /// use monome::Monome;
-    /// let monome = Monome::new("/prefix");
+    /// let mut monome = Monome::new("/prefix").unwrap();
     /// monome.all(8);
     /// monome.all(false);
     /// ```
@@ -565,12 +559,12 @@ impl Monome {
     /// ```
     /// extern crate monome;
     /// use monome::Monome;
-    /// let monome = Monome::new("/prefix");
-    /// let grid: Vec<bool> = vec!(false; 128);
+    /// let mut monome = Monome::new("/prefix").unwrap();
+    /// let mut grid: Vec<bool> = vec!(false; 128);
     /// for i in 0..128 {
     ///   grid[i] = (i + 1) % 2 == 0;
     /// }
-    /// monome.set_all(grid);
+    /// monome.set_all(&grid);
     /// ```
     pub fn set_all(&mut self, leds: &Vec<bool>) {
         let width_in_quad = self.size.0 / 8;
@@ -610,7 +604,7 @@ impl Monome {
     /// ```
     /// use monome::Monome;
     ///
-    /// let mut m = Monome::new("/prefix".into()).unwrap();
+    /// let mut m = Monome::new("/prefix").unwrap();
     /// let mut grid: Vec<u8> = vec!(0; 128);
     /// for i in 0..8 {
     ///     for j in 0..16 {
@@ -640,7 +634,7 @@ impl Monome {
         }
     }
 
-    /// Set the value an 8x8 quad of led on a monome grid
+    /// Set the value an 8x8 quad of led on a monome grid.
     ///
     /// # Arguments
     ///
@@ -658,20 +652,20 @@ impl Monome {
     /// ```
     /// extern crate monome;
     /// use monome::Monome;
-    /// let monome = Monome::new("/prefix");
+    /// let mut monome = Monome::new("/prefix").unwrap();
     /// let mut v: Vec<u8> = vec![0; 64];
     /// for i in 0..64 {
-    ///     v[i] = i / 4;
+    ///     v[i] = (i / 4) as u8;
     /// }
-    /// monome.map(0, 0, v);
-    /// monome.map(8, 0, vec![1, 3, 7, 15, 32, 63, 127, 0b11111111]);
+    /// monome.map(0, 0, &v);
+    /// monome.map(8, 0, &vec![1, 3, 7, 15, 32, 63, 127, 0b11111111]);
     /// ```
     pub fn map<A>(&mut self, x_offset: i32, y_offset: i32, masks: &A)
         where A: IntoAddrAndArgs<Vec<OscType>> + ?Sized
     {
-        let mut args = Vec::with_capacity(10);
-
         let (frag, mut arg) = masks.as_addr_frag_and_args();
+
+        let mut args = Vec::with_capacity(2 + arg.len());
 
         args.push(OscType::Int(x_offset));
         args.push(OscType::Int(y_offset));
@@ -680,7 +674,8 @@ impl Monome {
         self.send(&format!("/grid/led/{}map", frag), args);
     }
 
-    /// Set a full row of a grid, using one or more 8-bit mask(s).
+    /// Set a full row of a grid, using one or more 8-bit mask(s), or a vector containing booleans
+    /// or integer intensity values.
     ///
     /// # Arguments
     ///
@@ -698,34 +693,34 @@ impl Monome {
     /// ```
     /// extern crate monome;
     ///   use monome::Monome;
-    ///   let monome = Monome::new("/prefix");
+    ///   let mut monome = Monome::new("/prefix").unwrap();
     ///   monome.col(8 /* rightmost half */,
     ///              2 /* 3rd row, 0 indexed */,
-    ///              vec![0b01010101u8] /* every other led, 85 in decimal */);
+    ///              &vec![0b01010101u8] /* every other led, 85 in decimal */);
     /// ```
     pub fn row<A>(&mut self, x_offset: i32, y: i32, leds: &A)
         where A: IntoAddrAndArgs<Vec<OscType>>
     {
-        let mut args = Vec::with_capacity((2 + self.size.1 / 8) as usize);
+        let (frag, mut arg) = leds.as_addr_frag_and_args();
+
+        let mut args = Vec::with_capacity((2 + arg.len()) as usize);
 
         args.push(OscType::Int(x_offset));
         args.push(OscType::Int(y));
-
-        let (frag, mut arg) = leds.as_addr_frag_and_args();
-
         args.append(&mut arg);
 
         self.send(&format!("/grid/led/{}row", frag), args);
     }
 
-    /// Set a full column of a grid, using one or more 8-bit mask(s).
+    /// Set a full column of a grid, using one or more 8-bit mask(s), or a vector containing
+    /// booleans or integer intensity values.
     ///
     /// # Arguments
     ///
     /// * `x` - which column to set 0-indexed. This must be lower than the number of columns of the
     /// device.
     /// * `y_offset` - at which 8 button offset to start setting the leds. This is always 0 for a
-    /// 64 and 128, can be 8 for a 256.
+    /// 64, and can be 8 for a 128 or 256.
     /// * `leds` - either the list of masks that determine the pattern to light on for a particular 8 led
     /// long section, or a vector of either int or bool, one element for each led.
     ///
@@ -737,21 +732,20 @@ impl Monome {
     /// ```
     /// extern crate monome;
     ///   use monome::Monome;
-    ///   let monome = Monome::new("/prefix");
+    ///   let mut monome = Monome::new("/prefix").unwrap();
     ///   monome.col(2 /* 3rd column, 0-indexed */,
     ///              8 /* bottom half */,
-    ///              vec![0b01010101u8] /* every other led, 85 in decimal */);
+    ///              &vec![0b01010101u8] /* every other led, 85 in decimal */);
     /// ```
     pub fn col<A>(&mut self, x: i32, y_offset: i32, leds: &A)
         where A: IntoAddrAndArgs<Vec<OscType>>
     {
-        let mut args = Vec::with_capacity((2 + self.size.0 / 8) as usize);
-
         let (frag, mut arg) = leds.as_addr_frag_and_args();
+
+        let mut args = Vec::with_capacity((2 + arg.len()) as usize);
 
         args.push(OscType::Int(x));
         args.push(OscType::Int(y_offset));
-
         args.append(&mut arg);
 
         self.send(&format!("/grid/led/{}col", frag), args);
@@ -850,7 +844,7 @@ impl Monome {
     /// ```
     /// extern crate monome;
     /// use monome::{Monome, MonomeEvent, KeyDirection};
-    /// let m = Monome::new("/prefix".into());
+    /// let mut m = Monome::new("/prefix").unwrap();
     ///
     /// loop {
     ///     match m.poll() {
@@ -947,7 +941,7 @@ impl Monome {
                             if let OscType::Int(n) = args[0] {
                                 if let OscType::Int(x) = args[1] {
                                     if let OscType::Int(y) = args[2] {
-                                        if let OscType::Int(z) = args[2] {
+                                        if let OscType::Int(z) = args[3] {
                                             info!("Tilt {} {},{},{}", n, x, y, z);
                                             return Some(MonomeEvent::Tilt { n, x, y, z });
                                         } else {
@@ -1119,7 +1113,7 @@ mod tests {
             }
         });
 
-        let m = Monome::new("/plop".to_string());
+        let m = Monome::new("/plop".to_string()).unwrap();
         println!("{:?}", m);
     }
 }
