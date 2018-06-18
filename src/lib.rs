@@ -203,7 +203,7 @@ pub struct Monome {
 }
 
 /// Returns an osc packet from a address and arguments
-fn message(addr: &str, args: Vec<OscType>) -> OscPacket {
+fn build_osc_message(addr: &str, args: Vec<OscType>) -> OscPacket {
     let message = OscMessage {
         addr: addr.to_owned(),
         args: Some(args),
@@ -344,13 +344,12 @@ impl Monome {
         let server_port = socket.local_addr().unwrap().port();
         let server_ip = socket.local_addr().unwrap().ip().to_string();
 
-        let packet = message("/serialosc/list",
+        let packet = build_osc_message("/serialosc/list",
                              vec![OscType::String(server_ip),
                                   OscType::Int(i32::from(server_port))]);
 
         let bytes: Vec<u8> = encode(&packet).unwrap();
 
-        // serialosc address, pretty safe to hardcode
         let addr = format!("127.0.0.1:{}", serialosc_port).parse().unwrap();
         let (mut socket, _) = socket.send_dgram(bytes, &addr).wait().unwrap();
         // loop until we find the device list message. It can be that some other messages are
@@ -396,20 +395,20 @@ impl Monome {
         let add = device_address.parse();
         let addr: SocketAddr = add.unwrap();
 
-        let packet = message("/sys/port", vec![OscType::Int(i32::from(server_port))]);
+        let packet = build_osc_message("/sys/port", vec![OscType::Int(i32::from(server_port))]);
         let bytes: Vec<u8> = encode(&packet).unwrap();
         let socket = socket.send_dgram(bytes, &addr).wait().map(|(s, _)| s).unwrap();
 
         let local_addr = socket.local_addr().unwrap().ip();
-        let packet = message("/sys/host", vec![OscType::String(local_addr.to_string())]);
+        let packet = build_osc_message("/sys/host", vec![OscType::String(local_addr.to_string())]);
         let bytes: Vec<u8> = encode(&packet).unwrap();
         let socket = socket.send_dgram(bytes, &addr).wait().map(|(s, _)| s).unwrap();
 
-        let packet = message("/sys/prefix", vec![OscType::String(prefix.to_string())]);
+        let packet = build_osc_message("/sys/prefix", vec![OscType::String(prefix.to_string())]);
         let bytes: Vec<u8> = encode(&packet).unwrap();
         let socket = socket.send_dgram(bytes, &addr).wait().map(|(s, _)| s).unwrap();
 
-        let packet = message("/sys/info", vec![]);
+        let packet = build_osc_message("/sys/info", vec![]);
         let bytes: Vec<u8> = encode(&packet).unwrap();
         let mut socket = socket.send_dgram(bytes, &addr).wait().map(|(s, _)| s).unwrap();
 
@@ -874,7 +873,7 @@ impl Monome {
                 return None;
             }
             Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                error!("error tryrecv discon");
+                error!("error transport disconnected");
                 return None;
             }
         }
@@ -1028,7 +1027,7 @@ mod tests {
                 panic!("bad message");
             };
 
-            let packet = message("/serialosc/device",
+            let packet = build_osc_message("/serialosc/device",
                                  vec![OscType::String("monome grid test".into()),
                                       OscType::String("m123123".into()),
                                       OscType::Int(1234)]);
@@ -1103,7 +1102,7 @@ mod tests {
             assert!(message_addrs.len() == message_args.len());
 
             for i in 0..message_addrs.len() {
-                let packet = message(message_addrs[i], message_args[i].clone());
+                let packet = build_osc_message(message_addrs[i], message_args[i].clone());
                 let bytes: Vec<u8> = encode(&packet).unwrap();
                 socket = socket
                     .send_dgram(bytes, &app_addr)
