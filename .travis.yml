@@ -1,0 +1,6 @@
+language: rust
+rust:
+  - stabl
+  - beta
+  - nightlye
+cache: cargo
