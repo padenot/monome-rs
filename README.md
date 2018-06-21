@@ -1,8 +1,8 @@
 # monome-rs
 
-Talk to a (monome grid)[https://monome.org/docs/grid/] in
+Talk to a [monome grid](https://monome.org/docs/grid/) in
 [rust](https://www.rust-lang.org/). It should be relatively straightforward to
-extend this to talk to an (arc)[https://market.monome.org/products/arc], but I
+extend this to talk to an [arc](https://market.monome.org/products/arc), but I
 don't have one. If you do, please get in touch.
 
 # Licence
