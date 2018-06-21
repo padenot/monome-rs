@@ -276,7 +276,6 @@ impl IntoAddrAndArgs<Vec<OscType>> for Vec<u8> {
 impl IntoAddrAndArgs<Vec<OscType>> for [u8] {
     fn as_addr_frag_and_args(&self) -> (String, Vec<OscType>) {
         // TODO: error handling both valid: either 64 or more intensity values, or 8 masks
-        assert!(self.len() >= 64 || self.len() == 8);
         let mut osctype_vec = Vec::with_capacity(self.len());
         for item in self.iter().map(|i| OscType::Int(*i as i32)) {
             osctype_vec.push(item);
@@ -475,12 +474,43 @@ impl Monome {
     pub fn new<S>(prefix: S) -> Result<Monome, String>
         where S: Into<String>
     {
+        Monome::new_with_port(prefix, SERIALOSC_PORT)
+    }
+    /// Sets up a monome, with a particular prefix and a non-standard port for serialosc.
+    ///
+    /// # Arguments
+    ///
+    /// * `prefix` - the prefix to use for this device and this application
+    /// * `serialosc_port` - the port at which serialosc can be reached.
+    ///
+    /// # Example
+    ///
+    /// Set up a monome, with a prefix of "/prefix", and specify an explicit port on which
+    /// serialosc can be reached (here, the default of 12002):
+    ///
+    /// ```
+    /// extern crate monome;
+    /// use monome::Monome;
+    /// let m = Monome::new_with_port("/prefix", 12002);
+    ///
+    /// match m {
+    ///   Ok(monome) => {
+    ///     println!("{:?}", monome);
+    ///   }
+    ///   Err(s) => {
+    ///     println!("Could not setup the monome: {}", s);
+    ///   }
+    /// }
+    /// ```
+    pub fn new_with_port<S>(prefix: S, serialosc_port: i32) -> Result<Monome, String>
+        where S: Into<String>
+    {
         let (sender, receiver) = futures::sync::mpsc::channel(16);
         let (tx, rx) = channel();
 
         let prefix = prefix.into();
 
-        let (info, socket, name, device_type, device_port) = Monome::setup(SERIALOSC_PORT, &prefix)
+        let (info, socket, name, device_type, device_port) = Monome::setup(serialosc_port, &prefix)
             .unwrap();
 
         let t = Transport::new(device_port, socket, tx, receiver);
@@ -1008,7 +1038,7 @@ impl fmt::Debug for Monome {
 #[cfg(test)]
 mod tests {
     use Monome;
-    use message;
+    use build_osc_message;
     use std::thread;
     use tokio::net::UdpSocket;
     use SERIALOSC_PORT;
@@ -1024,7 +1054,8 @@ mod tests {
             let device_addr = format!("127.0.0.1:{}", fake_device_port).parse().unwrap();
             let device_socket = UdpSocket::bind(&device_addr).unwrap();
 
-            let serialosc_addr = format!("127.0.0.1:{}", SERIALOSC_PORT).parse().unwrap();
+            // Avoid failing if serialocs is running on the default port.
+            let serialosc_addr = format!("127.0.0.1:{}", SERIALOSC_PORT + 1).parse().unwrap();
             let serialosc_socket = UdpSocket::bind(&serialosc_addr).unwrap();
             let (socket, data, _, _) = serialosc_socket.recv_dgram(vec![0u8; 1024]).wait().unwrap();
             let packet = decode(&data).unwrap();
@@ -1127,7 +1158,8 @@ mod tests {
             }
         });
 
-        let m = Monome::new("/plop".to_string()).unwrap();
+        // use another port in case serialosc is running on the local machine
+        let m = Monome::new_with_port("/plop".to_string(), SERIALOSC_PORT + 1).unwrap();
         println!("{:?}", m);
     }
 }
