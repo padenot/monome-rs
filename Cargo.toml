@@ -9,9 +9,11 @@ path = "src/lib.rs"
 
 [dependencies]
 tokio = "0.1"
-rosc = "0.1"
 futures = "0.1.20"
+rosc = "0.1"
 log = "0.4.1"
+
+[dev-dependencies]
 env_logger = "0.5.10"
 num = "0.1.42"
 rand = "0.5.0"
