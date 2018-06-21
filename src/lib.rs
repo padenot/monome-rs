@@ -20,12 +20,21 @@ use rosc::decoder::decode;
 use rosc::encoder::encode;
 use rosc::{OscPacket, OscMessage, OscType};
 
-/// The port at which serialosc is running.
+/// The default port at which serialosc is running.
 pub const SERIALOSC_PORT: i32 = 12002;
 
 /// From a x and y position, and a stride, returns the offset at which the element is in an array.
 fn toidx(x: i32, y: i32, width: i32) -> usize {
     (y * width + x) as usize
+}
+
+/// Returns an osc packet from a address and arguments
+fn build_osc_message(addr: &str, args: Vec<OscType>) -> OscPacket {
+    let message = OscMessage {
+        addr: addr.to_owned(),
+        args: Some(args),
+    };
+    OscPacket::Message(message)
 }
 
 #[derive(Debug)]
@@ -200,15 +209,6 @@ pub struct Monome {
     rx: Receiver<Vec<u8>>,
     /// A channel that allows sending serialized OSC messages to a device.
     tx: future_mpsc::Sender<Vec<u8>>,
-}
-
-/// Returns an osc packet from a address and arguments
-fn build_osc_message(addr: &str, args: Vec<OscType>) -> OscPacket {
-    let message = OscMessage {
-        addr: addr.to_owned(),
-        args: Some(args),
-    };
-    OscPacket::Message(message)
 }
 
 /// Whether a key press is going up or down
