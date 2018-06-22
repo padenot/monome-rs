@@ -1040,10 +1040,14 @@ mod tests {
     use rosc::encoder::encode;
     use rosc::{OscPacket, OscType};
     use tokio::prelude::*;
+    use std::sync::{Arc, Mutex, Condvar};
 
     #[test]
     fn setup() {
-        thread::spawn(|| {
+        let pair = Arc::new((Mutex::new(false), Condvar::new()));
+        let pair2 = pair.clone();
+
+        thread::spawn(move || {
             let fake_device_port = 1234;
             let device_addr = format!("127.0.0.1:{}", fake_device_port).parse().unwrap();
             let device_socket = UdpSocket::bind(&device_addr).unwrap();
@@ -1051,7 +1055,22 @@ mod tests {
             // Avoid failing if serialocs is running on the default port.
             let serialosc_addr = format!("127.0.0.1:{}", SERIALOSC_PORT + 1).parse().unwrap();
             let serialosc_socket = UdpSocket::bind(&serialosc_addr).unwrap();
+
+
+            println!("about to notify, all bound");
+        {
+            let &(ref lock, ref cvar) = &*pair2;
+            let mut started = lock.lock().unwrap();
+            println!("{:?}", started);
+            *started = true;
+            println!("notifying {}", started);
+            cvar.notify_all();
+            println!("waiting on recv");
+        }
+
+
             let (socket, data, _, _) = serialosc_socket.recv_dgram(vec![0u8; 1024]).wait().unwrap();
+            println!("recv ok");
             let packet = decode(&data).unwrap();
 
             let msg = match packet {
@@ -1151,6 +1170,18 @@ mod tests {
                     .unwrap();
             }
         });
+
+        println!("waiting on lock for thread.");
+        let &(ref lock, ref cvar) = &*pair;
+        let mut started = lock.lock().unwrap();
+        println!("locked");
+        while !*started {
+            println!("not started {}", started);
+            started = cvar.wait(started).unwrap();
+            println!("woken up");
+        }
+
+        println!("init ok, creating monome");
 
         // use another port in case serialosc is running on the local machine
         let m = Monome::new_with_port("/plop".to_string(), SERIALOSC_PORT + 1).unwrap();
