@@ -689,9 +689,9 @@ impl Monome {
     ///
     /// On a monome 128, draw a triangle in the lower left half of the rightmost half, and a
     /// gradient on the leftmost half.
-    /// ```
-    /// extern crate monome;
-    /// use monome::Monome;
+    /// ```no_run
+    /// # extern crate monome;
+    /// # use monome::Monome;
     /// let mut monome = Monome::new("/prefix").unwrap();
     /// let mut v: Vec<u8> = vec![0; 64];
     /// for i in 0..64 {
@@ -879,8 +879,9 @@ impl Monome {
     ///
     /// # Example
     ///
-    /// ```
-    /// extern crate monome;
+    /// ```no_run
+    /// # extern crate monome;
+    ///
     /// use monome::{Monome, MonomeEvent, KeyDirection};
     /// let mut m = Monome::new("/prefix").unwrap();
     ///
@@ -1056,21 +1057,14 @@ mod tests {
             let serialosc_addr = format!("127.0.0.1:{}", SERIALOSC_PORT + 1).parse().unwrap();
             let serialosc_socket = UdpSocket::bind(&serialosc_addr).unwrap();
 
-
-            println!("about to notify, all bound");
-        {
-            let &(ref lock, ref cvar) = &*pair2;
-            let mut started = lock.lock().unwrap();
-            println!("{:?}", started);
-            *started = true;
-            println!("notifying {}", started);
-            cvar.notify_all();
-            println!("waiting on recv");
-        }
-
+            {
+                let &(ref lock, ref cvar) = &*pair2;
+                let mut started = lock.lock().unwrap();
+                *started = true;
+                cvar.notify_all();
+            }
 
             let (socket, data, _, _) = serialosc_socket.recv_dgram(vec![0u8; 1024]).wait().unwrap();
-            println!("recv ok");
             let packet = decode(&data).unwrap();
 
             let msg = match packet {
@@ -1171,17 +1165,11 @@ mod tests {
             }
         });
 
-        println!("waiting on lock for thread.");
         let &(ref lock, ref cvar) = &*pair;
         let mut started = lock.lock().unwrap();
-        println!("locked");
         while !*started {
-            println!("not started {}", started);
             started = cvar.wait(started).unwrap();
-            println!("woken up");
         }
-
-        println!("init ok, creating monome");
 
         // use another port in case serialosc is running on the local machine
         let m = Monome::new_with_port("/plop".to_string(), SERIALOSC_PORT + 1).unwrap();
