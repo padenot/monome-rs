@@ -457,8 +457,7 @@ impl Monome {
     ///
     /// Set up a monome, with a prefix of "/prefix":
     ///
-    /// ```
-    /// extern crate monome;
+    /// ```no_run
     /// use monome::Monome;
     /// let m = Monome::new("/prefix");
     ///
@@ -488,8 +487,7 @@ impl Monome {
     /// Set up a monome, with a prefix of "/prefix", and specify an explicit port on which
     /// serialosc can be reached (here, the default of 12002):
     ///
-    /// ```
-    /// extern crate monome;
+    /// ```no_run
     /// use monome::Monome;
     /// let m = Monome::new_with_port("/prefix", 12002);
     ///
@@ -546,10 +544,9 @@ impl Monome {
     /// Set the led on the second row and second column to On, and also the third row and second
     /// column to mid-brightness:
     ///
-    /// ```
-    /// extern crate monome;
-    /// use monome::Monome;
-    /// let mut monome = Monome::new("/prefix").unwrap();
+    /// ```no_run
+    /// # use monome::Monome;
+    /// # let mut monome = Monome::new("/prefix").unwrap();
     /// monome.set(1 /* 2nd, 0-indexed */,
     ///            1 /* 2nd, 0-indexed */,
     ///            true);
@@ -576,8 +573,8 @@ impl Monome {
     ///
     /// On a grid, set all led to medium brightness, then turn it on:
     ///
-    /// ```
-    /// use monome::Monome;
+    /// ```no_run
+    /// # use monome::Monome;
     /// let mut monome = Monome::new("/prefix").unwrap();
     /// monome.all(8);
     /// monome.all(false);
@@ -600,9 +597,8 @@ impl Monome {
     ///
     /// One a monome 128, do a checkerboard pattern:
     ///
-    /// ```
-    /// extern crate monome;
-    /// use monome::Monome;
+    /// ```no_run
+    /// # use monome::Monome;
     /// let mut monome = Monome::new("/prefix").unwrap();
     /// let mut grid: Vec<bool> = vec!(false; 128);
     /// for i in 0..128 {
@@ -645,8 +641,8 @@ impl Monome {
     ///
     /// One a monome 128, do a gradient
     ///
-    /// ```
-    /// use monome::Monome;
+    /// ```no_run
+    /// # use monome::Monome;
     ///
     /// let mut m = Monome::new("/prefix").unwrap();
     /// let mut grid: Vec<u8> = vec!(0; 128);
@@ -734,13 +730,12 @@ impl Monome {
     ///
     /// On a monome 128, light up every other led of the right half of the 3rd  row:
     ///
-    /// ```
-    /// extern crate monome;
-    ///   use monome::Monome;
-    ///   let mut monome = Monome::new("/prefix").unwrap();
-    ///   monome.col(8 /* rightmost half */,
-    ///              2 /* 3rd row, 0 indexed */,
-    ///              &vec![0b01010101u8] /* every other led, 85 in decimal */);
+    /// ```no_run
+    /// # use monome::Monome;
+    /// let mut monome = Monome::new("/prefix").unwrap();
+    /// monome.col(8 /* rightmost half */,
+    ///            2 /* 3rd row, 0 indexed */,
+    ///            &vec![0b01010101u8] /* every other led, 85 in decimal */);
     /// ```
     pub fn row<A>(&mut self, x_offset: i32, y: i32, leds: &A)
         where A: IntoAddrAndArgs<Vec<OscType>>
@@ -773,13 +768,12 @@ impl Monome {
     /// On a monome 256, light up every other led of the bottom half of the 3rd column from the
     /// right:
     ///
-    /// ```
-    /// extern crate monome;
-    ///   use monome::Monome;
-    ///   let mut monome = Monome::new("/prefix").unwrap();
-    ///   monome.col(2 /* 3rd column, 0-indexed */,
-    ///              8 /* bottom half */,
-    ///              &vec![0b01010101u8] /* every other led, 85 in decimal */);
+    /// ```no_run
+    /// use monome::Monome;
+    /// let mut monome = Monome::new("/prefix").unwrap();
+    /// monome.col(2 /* 3rd column, 0-indexed */,
+    ///            8 /* bottom half */,
+    ///            &vec![0b01010101u8] /* every other led, 85 in decimal */);
     /// ```
     pub fn col<A>(&mut self, x: i32, y_offset: i32, leds: &A)
         where A: IntoAddrAndArgs<Vec<OscType>>
