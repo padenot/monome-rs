@@ -146,7 +146,12 @@ impl Future for Transport {
                         Async::Ready(b) => {
                             let device_address = format!("127.0.0.1:{}", self.device_port);
                             let addr: SocketAddr = device_address.parse().unwrap();
-                            let _amt = try_ready!(self.socket.poll_send_to(&mut b.unwrap(), &addr));
+                            // This happens when shutting down usually
+                            if b.is_some() {
+                                let _amt = try_ready!(self.socket.poll_send_to(&mut b.unwrap(), &addr));
+                            } else {
+                                break;
+                            }
                         }
                         Async::NotReady => {
                             break;
@@ -847,6 +852,15 @@ impl Monome {
     pub fn size(&self) -> (i32, i32) {
         self.size
     }
+    /// Get the width of this device.
+    pub fn width(&self) -> usize {
+        self.size.0 as usize
+    }
+
+    /// Get the height of this device.
+    pub fn height(&self) -> usize {
+        self.size.1 as usize
+    }
 
     /// Adds the prefix, packs the OSC message into an u8 vector and sends it to the transport.
     fn send(&mut self, addr: &str, args: Vec<OscType>) {
@@ -1173,6 +1187,5 @@ mod tests {
 
         // use another port in case serialosc is running on the local machine
         let m = Monome::new_with_port("/plop".to_string(), SERIALOSC_PORT + 1).unwrap();
-        println!("{:?}", m);
     }
 }
