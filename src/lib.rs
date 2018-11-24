@@ -281,6 +281,15 @@ impl<'a> IntoAddrAndArgs<'a, Vec<OscType>> for &'a [u8; 64] {
     }
 }
 
+impl<'a> IntoAddrAndArgs<'a, Vec<OscType>> for u8 {
+    fn as_addr_frag_and_args(&self) -> (String, Vec<OscType>) {
+        // TODO: error handling both valid: either 64 or more intensity values, or 8 masks
+        let mut osctype_vec = Vec::with_capacity(1);
+        osctype_vec.push(OscType::Int(*self as i32));
+        ("".to_string(), osctype_vec)
+    }
+}
+
 impl<'a> IntoAddrAndArgs<'a, Vec<OscType>> for &'a [u8; 8] {
     fn as_addr_frag_and_args(&self) -> (String, Vec<OscType>) {
         // TODO: error handling both valid: either 64 or more intensity values, or 8 masks
@@ -291,12 +300,6 @@ impl<'a> IntoAddrAndArgs<'a, Vec<OscType>> for &'a [u8; 8] {
         ("".to_string(), osctype_vec)
     }
 }
-
-// impl<'a> IntoAddrAndArgs<'a, Vec<OscType>> for Vec<bool> {
-//     fn as_addr_frag_and_args(&self) -> (String, Vec<OscType>) {
-//         (&**self).as_addr_frag_and_args()
-//     }
-// }
 
 /// Used to convert vectors of bools for on/off calls, packs into a 8-bit integer mask.
 impl<'a> IntoAddrAndArgs<'a, Vec<OscType>> for &'a [bool; 64] {
@@ -603,7 +606,7 @@ impl Monome {
     /// ```no_run
     /// # use monome::Monome;
     /// let mut monome = Monome::new("/prefix").unwrap();
-    /// let mut grid: Vec<bool> = vec!(false; 128);
+    /// let mut grid = [false; 128];
     /// for i in 0..128 {
     ///   grid[i] = (i + 1) % 2 == 0;
     /// }
@@ -696,12 +699,12 @@ impl Monome {
     /// # extern crate monome;
     /// # use monome::Monome;
     /// let mut monome = Monome::new("/prefix").unwrap();
-    /// let mut v: Vec<u8> = vec![0; 64];
+    /// let mut v = [0; 64];
     /// for i in 0..64 {
     ///     v[i] = (i / 4) as u8;
     /// }
     /// monome.map(0, 0, &v);
-    /// monome.map(8, 0, &vec![1, 3, 7, 15, 32, 63, 127, 0b11111111]);
+    /// monome.map(8, 0, &[1, 3, 7, 15, 32, 63, 127, 0b11111111]);
     /// ```
     pub fn map<'a, A>(&mut self, x_offset: i32, y_offset: i32, masks: A)
         where A: IntoAddrAndArgs<'a, Vec<OscType>> + Sized
@@ -736,9 +739,9 @@ impl Monome {
     /// ```no_run
     /// # use monome::Monome;
     /// let mut monome = Monome::new("/prefix").unwrap();
-    /// monome.col(8 /* rightmost half */,
+    /// monome.row(8 /* rightmost half */,
     ///            2 /* 3rd row, 0 indexed */,
-    ///            &vec![0b01010101u8] /* every other led, 85 in decimal */);
+    ///            &0b01010101u8 /* every other led, 85 in decimal */);
     /// ```
     pub fn row<'a, A>(&mut self, x_offset: i32, y: i32, leds: &A)
         where A: IntoAddrAndArgs<'a, Vec<OscType>>
@@ -776,7 +779,7 @@ impl Monome {
     /// let mut monome = Monome::new("/prefix").unwrap();
     /// monome.col(2 /* 3rd column, 0-indexed */,
     ///            8 /* bottom half */,
-    ///            &vec![0b01010101u8] /* every other led, 85 in decimal */);
+    ///            &0b01010101u8 /* every other led, 85 in decimal */);
     /// ```
     pub fn col<'a, A>(&mut self, x: i32, y_offset: i32, leds: &A)
         where A: IntoAddrAndArgs<'a, Vec<OscType>>

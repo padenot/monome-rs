@@ -215,7 +215,7 @@ dependencies = [
 
 [[package]]
 name = "monome-rs"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "env_logger 0.5.10 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.21 (registry+https://github.com/rust-lang/crates.io-index)",
