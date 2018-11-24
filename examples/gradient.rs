@@ -11,7 +11,7 @@ fn main() {
 
     println!("{:?}", monome);
 
-    let mut v: Vec<u8> = vec![0; 64];
+    let mut v = [0; 64];
 
     let mut sp : isize = 1;
     let mut dir : isize = 1;

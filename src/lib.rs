@@ -252,60 +252,58 @@ pub enum MonomeEvent {
 
 /// Converts an to a Monome method argument to a OSC address fragment and suitble OscType,
 /// performing an eventual conversion.
-pub trait IntoAddrAndArgs<B> {
+pub trait IntoAddrAndArgs<'a, B> {
     fn as_addr_frag_and_args(&self) -> (String, B);
 }
 
 /// Used to make a call with an intensity value, adds the `"level/"` portion in the address.
-impl IntoAddrAndArgs<OscType> for i32 {
+impl<'a> IntoAddrAndArgs<'a, OscType> for i32 {
     fn as_addr_frag_and_args(&self) -> (String, OscType) {
         ("level/".to_string(), OscType::Int(*self))
     }
 }
 
 /// Used to make an on/off call, converts to 0 or 1.
-impl IntoAddrAndArgs<OscType> for bool {
+impl<'a> IntoAddrAndArgs<'a, OscType> for bool {
     fn as_addr_frag_and_args(&self) -> (String, OscType) {
         ("".to_string(), OscType::Int(if *self { 1 } else { 0 }))
     }
 }
 
-/// Used to convert vectors of integers for calls with an intensity value, adds the `"level/"`
-/// portion in the address.
-impl IntoAddrAndArgs<Vec<OscType>> for Vec<u8> {
-    fn as_addr_frag_and_args(&self) -> (String, Vec<OscType>) {
-        (&**self).as_addr_frag_and_args()
-    }
-}
-
-impl IntoAddrAndArgs<Vec<OscType>> for [u8] {
+impl<'a> IntoAddrAndArgs<'a, Vec<OscType>> for &'a [u8; 64] {
     fn as_addr_frag_and_args(&self) -> (String, Vec<OscType>) {
         // TODO: error handling both valid: either 64 or more intensity values, or 8 masks
-        let mut osctype_vec = Vec::with_capacity(self.len());
+        let mut osctype_vec = Vec::with_capacity(64);
         for item in self.iter().map(|i| OscType::Int(*i as i32)) {
             osctype_vec.push(item);
         }
-        if self.len() == 8 {
-            // masks
-            ("".to_string(), osctype_vec)
-        } else {
-            ("level/".to_string(), osctype_vec)
-        }
+        ("level/".to_string(), osctype_vec)
     }
 }
 
-impl IntoAddrAndArgs<Vec<OscType>> for Vec<bool> {
+impl<'a> IntoAddrAndArgs<'a, Vec<OscType>> for &'a [u8; 8] {
     fn as_addr_frag_and_args(&self) -> (String, Vec<OscType>) {
-        (&**self).as_addr_frag_and_args()
+        // TODO: error handling both valid: either 64 or more intensity values, or 8 masks
+        let mut osctype_vec = Vec::with_capacity(8);
+        for item in self.iter().map(|i| OscType::Int(*i as i32)) {
+            osctype_vec.push(item);
+        }
+        ("".to_string(), osctype_vec)
     }
 }
+
+// impl<'a> IntoAddrAndArgs<'a, Vec<OscType>> for Vec<bool> {
+//     fn as_addr_frag_and_args(&self) -> (String, Vec<OscType>) {
+//         (&**self).as_addr_frag_and_args()
+//     }
+// }
 
 /// Used to convert vectors of bools for on/off calls, packs into a 8-bit integer mask.
-impl IntoAddrAndArgs<Vec<OscType>> for [bool] {
+impl<'a> IntoAddrAndArgs<'a, Vec<OscType>> for &'a [bool; 64] {
     fn as_addr_frag_and_args(&self) -> (String, Vec<OscType>) {
         // TODO: error handling
         assert!(self.len() >= 64);
-        let mut masks: Vec<u8> = vec![0; 8];
+        let mut masks = [0 as u8; 8];
         for i in 0..8 {
             // for each row
             let mut mask: u8 = 0;
@@ -559,8 +557,8 @@ impl Monome {
     ///            2 /* 3nd, 0-indexed */,
     ///            8);
     /// ```
-    pub fn set<A>(&mut self, x: i32, y: i32, arg: A)
-        where A: IntoAddrAndArgs<OscType>
+    pub fn set<'a, A>(&mut self, x: i32, y: i32, arg: A)
+        where A: IntoAddrAndArgs<'a, OscType>
     {
         let (frag, arg) = arg.as_addr_frag_and_args();
         self.send(&format!("/grid/led/{}set", frag).to_string(),
@@ -584,8 +582,8 @@ impl Monome {
     /// monome.all(8);
     /// monome.all(false);
     /// ```
-    pub fn all<A>(&mut self, arg: A)
-        where A: IntoAddrAndArgs<OscType>
+    pub fn all<'a, A>(&mut self, arg: A)
+        where A: IntoAddrAndArgs<'a, OscType>
     {
         let (frag, arg) = arg.as_addr_frag_and_args();
         self.send(&format!("/grid/led/{}all", frag).to_string(), vec![arg]);
@@ -611,13 +609,13 @@ impl Monome {
     /// }
     /// monome.set_all(&grid);
     /// ```
-    pub fn set_all(&mut self, leds: &Vec<bool>) {
+    pub fn set_all(&mut self, leds: &[bool]) {
         let width_in_quad = self.size.0 / 8;
         let height_in_quad = self.size.1 / 8;
         let width = self.size.0;
         let quad_size: i32 = 8;
 
-        let mut masks: Vec<u8> = vec![0; 8];
+        let mut masks = [0 as u8; 8];
         for a in 0..height_in_quad {
             for b in 0..width_in_quad {
                 for i in 0..8 {
@@ -658,13 +656,13 @@ impl Monome {
     /// }
     /// m.set_all_intensity(&grid);
     /// ```
-    pub fn set_all_intensity(&mut self, leds: &Vec<u8>) {
+    pub fn set_all_intensity(&mut self, leds: &[u8]) {
         let width_in_quad = self.size.0 / 8;
         let height_in_quad = self.size.1 / 8;
         let width = self.size.0;
         let quad_size = 8;
 
-        let mut quad: Vec<u8> = vec![0; 64];
+        let mut quad = [0 as u8; 64];
         for a in 0..height_in_quad {
             for b in 0..width_in_quad {
                 // Get the quad into an array
@@ -705,8 +703,8 @@ impl Monome {
     /// monome.map(0, 0, &v);
     /// monome.map(8, 0, &vec![1, 3, 7, 15, 32, 63, 127, 0b11111111]);
     /// ```
-    pub fn map<A>(&mut self, x_offset: i32, y_offset: i32, masks: &A)
-        where A: IntoAddrAndArgs<Vec<OscType>> + ?Sized
+    pub fn map<'a, A>(&mut self, x_offset: i32, y_offset: i32, masks: A)
+        where A: IntoAddrAndArgs<'a, Vec<OscType>> + Sized
     {
         let (frag, mut arg) = masks.as_addr_frag_and_args();
 
@@ -742,16 +740,16 @@ impl Monome {
     ///            2 /* 3rd row, 0 indexed */,
     ///            &vec![0b01010101u8] /* every other led, 85 in decimal */);
     /// ```
-    pub fn row<A>(&mut self, x_offset: i32, y: i32, leds: &A)
-        where A: IntoAddrAndArgs<Vec<OscType>>
+    pub fn row<'a, A>(&mut self, x_offset: i32, y: i32, leds: &A)
+        where A: IntoAddrAndArgs<'a, Vec<OscType>>
     {
-        let (frag, mut arg) = leds.as_addr_frag_and_args();
+        let (frag, arg) = leds.as_addr_frag_and_args();
 
         let mut args = Vec::with_capacity((2 + arg.len()) as usize);
 
         args.push(OscType::Int(x_offset));
         args.push(OscType::Int(y));
-        args.append(&mut arg);
+        args.append(&mut arg.to_vec());
 
         self.send(&format!("/grid/led/{}row", frag), args);
     }
@@ -780,8 +778,8 @@ impl Monome {
     ///            8 /* bottom half */,
     ///            &vec![0b01010101u8] /* every other led, 85 in decimal */);
     /// ```
-    pub fn col<A>(&mut self, x: i32, y_offset: i32, leds: &A)
-        where A: IntoAddrAndArgs<Vec<OscType>>
+    pub fn col<'a, A>(&mut self, x: i32, y_offset: i32, leds: &A)
+        where A: IntoAddrAndArgs<'a, Vec<OscType>>
     {
         let (frag, mut arg) = leds.as_addr_frag_and_args();
 
@@ -868,7 +866,7 @@ impl Monome {
         self.send_no_prefix(&with_prefix, args);
     }
 
-    /// Adds the prefix, packs the OSC message into an u8 vector and sends it to the transport.
+    /// Packs the OSC message into an u8 vector and sends it to the transport.
     fn send_no_prefix(&mut self, addr: &str, args: Vec<OscType>) {
         let message = OscMessage {
             addr: addr.to_owned(),

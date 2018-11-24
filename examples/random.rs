@@ -14,8 +14,8 @@ fn main() {
 
     println!("{:?}", monome);
 
-    let mut v: Vec<u8> = vec![0; 64];
-    let mut v2 = vec![false; 64];
+    let mut v = [0; 64];
+    let mut v2 = [false; 64];
 
     loop {
         for i in 0..64 {
@@ -23,9 +23,9 @@ fn main() {
             v2[i] = if random::<u8>() % 2 == 0 { false } else { true };
         }
         // random intensity from 0 to 15
-        monome.map(0, 0, &*v);
+        monome.map(0, 0, &v);
         // On/Off
-        monome.map(8, 0, &*v2);
+        monome.map(8, 0, &v2);
 
         let refresh = time::Duration::from_millis(33);
         thread::sleep(refresh);
