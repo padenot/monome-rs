@@ -1,7 +1,7 @@
 extern crate env_logger;
 extern crate monome;
-extern crate rand;
 extern crate num;
+extern crate rand;
 use rand::prelude::*;
 use std::{thread, time};
 

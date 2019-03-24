@@ -1,24 +1,24 @@
 #[macro_use]
 extern crate futures;
-extern crate tokio;
 extern crate rosc;
+extern crate tokio;
 #[macro_use]
 extern crate log;
 
-use std::io;
 use std::fmt;
+use std::io;
 use std::net::SocketAddr;
-use std::thread;
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::thread;
 
-use tokio::prelude::*;
 use tokio::net::UdpSocket;
+use tokio::prelude::*;
 
 use futures::sync::mpsc as future_mpsc;
 
 use rosc::decoder::decode;
 use rosc::encoder::encode;
-use rosc::{OscPacket, OscMessage, OscType};
+use rosc::{OscMessage, OscPacket, OscType};
 
 /// The default port at which serialosc is running.
 pub const SERIALOSC_PORT: i32 = 12002;
@@ -50,17 +50,21 @@ struct MonomeInfo {
 impl MonomeInfo {
     fn new() -> MonomeInfo {
         return MonomeInfo {
-                   port: None,
-                   host: None,
-                   prefix: None,
-                   id: None,
-                   size: None,
-                   rotation: None,
-               };
+            port: None,
+            host: None,
+            prefix: None,
+            id: None,
+            size: None,
+            rotation: None,
+        };
     }
     fn complete(&self) -> bool {
-        self.port.is_some() && self.host.is_some() && self.prefix.is_some() &&
-        self.id.is_some() && self.size.is_some() && self.rotation.is_some()
+        self.port.is_some()
+            && self.host.is_some()
+            && self.prefix.is_some()
+            && self.id.is_some()
+            && self.size.is_some()
+            && self.rotation.is_some()
     }
     fn fill(&mut self, packet: OscPacket) {
         match packet {
@@ -104,7 +108,6 @@ impl MonomeInfo {
     }
 }
 
-
 /// `Transport` implements the network input and output to and from serialosc, as well as the setup
 /// of the device.
 struct Transport {
@@ -120,17 +123,18 @@ struct Transport {
 }
 
 impl Transport {
-    pub fn new(device_port: i32,
-               socket: UdpSocket,
-               tx: Sender<Vec<u8>>,
-               rx: future_mpsc::Receiver<Vec<u8>>)
-               -> Transport {
+    pub fn new(
+        device_port: i32,
+        socket: UdpSocket,
+        tx: Sender<Vec<u8>>,
+        rx: future_mpsc::Receiver<Vec<u8>>,
+    ) -> Transport {
         return Transport {
-                   device_port,
-                   socket,
-                   tx,
-                   rx,
-               };
+            device_port,
+            socket,
+            tx,
+            rx,
+        };
     }
 }
 
@@ -148,7 +152,8 @@ impl Future for Transport {
                             let addr: SocketAddr = device_address.parse().unwrap();
                             // This happens when shutting down usually
                             if b.is_some() {
-                                let _amt = try_ready!(self.socket.poll_send_to(&mut b.unwrap(), &addr));
+                                let _amt =
+                                    try_ready!(self.socket.poll_send_to(&mut b.unwrap(), &addr));
                             } else {
                                 break;
                             }
@@ -167,23 +172,19 @@ impl Future for Transport {
         loop {
             let mut buf = vec![0; 1000];
             match self.socket.poll_recv(&mut buf) {
-                Ok(fut) => {
-                    match fut {
-                        Async::Ready(_ready) => {
-                            match self.tx.send(buf) {
-                                Ok(()) => {
-                                    continue;
-                                }
-                                Err(e) => {
-                                    error!("receive from monome, {}", e);
-                                }
-                            }
+                Ok(fut) => match fut {
+                    Async::Ready(_ready) => match self.tx.send(buf) {
+                        Ok(()) => {
+                            continue;
                         }
-                        Async::NotReady => {
-                            return Ok(Async::NotReady);
+                        Err(e) => {
+                            error!("receive from monome, {}", e);
                         }
+                    },
+                    Async::NotReady => {
+                        return Ok(Async::NotReady);
                     }
-                }
+                },
                 Err(e) => {
                     return Err(e);
                 }
@@ -326,9 +327,10 @@ impl<'a> IntoAddrAndArgs<'a, Vec<OscType>> for &'a [bool; 64] {
 }
 
 impl Monome {
-    fn setup(serialosc_port: i32,
-             prefix: &String)
-             -> Result<(MonomeInfo, UdpSocket, String, String, i32), String> {
+    fn setup(
+        serialosc_port: i32,
+        prefix: &String,
+    ) -> Result<(MonomeInfo, UdpSocket, String, String, i32), String> {
         // find a free port
         let mut port = 10000;
         let socket = loop {
@@ -338,7 +340,7 @@ impl Monome {
                 Ok(socket) => break socket,
                 Err(e) => {
                     error!("bind error: {}", e.to_string());
-                    if port > 65536 {;
+                    if port > 65536 {
                         panic!("Could not bind socket: port exhausted");
                     }
                 }
@@ -349,9 +351,13 @@ impl Monome {
         let server_port = socket.local_addr().unwrap().port();
         let server_ip = socket.local_addr().unwrap().ip().to_string();
 
-        let packet = build_osc_message("/serialosc/list",
-                                       vec![OscType::String(server_ip),
-                                            OscType::Int(i32::from(server_port))]);
+        let packet = build_osc_message(
+            "/serialosc/list",
+            vec![
+                OscType::String(server_ip),
+                OscType::Int(i32::from(server_port)),
+            ],
+        );
 
         let bytes: Vec<u8> = encode(&packet).unwrap();
 
@@ -366,22 +372,20 @@ impl Monome {
             let packet = decode(&data).unwrap();
 
             let rv = match packet {
-                OscPacket::Message(message) => {
-                    (|| {
-                        if message.addr == "/serialosc/device" {
-                            if let Some(args) = message.args {
-                                if let OscType::String(ref name) = args[0] {
-                                    if let OscType::String(ref device_type) = args[1] {
-                                        if let OscType::Int(port) = args[2] {
-                                            return Ok((name.clone(), device_type.clone(), port));
-                                        }
+                OscPacket::Message(message) => (|| {
+                    if message.addr == "/serialosc/device" {
+                        if let Some(args) = message.args {
+                            if let OscType::String(ref name) = args[0] {
+                                if let OscType::String(ref device_type) = args[1] {
+                                    if let OscType::Int(port) = args[2] {
+                                        return Ok((name.clone(), device_type.clone(), port));
                                     }
                                 }
                             }
                         }
-                        Err("Bad format")
-                    })()
-                }
+                    }
+                    Err("Bad format")
+                })(),
                 OscPacket::Bundle(_bundle) => Err("Unexpected bundle received during setup"),
             };
             match rv {
@@ -438,10 +442,10 @@ impl Monome {
             socket = socket
                 .recv_dgram(vec![0u8; 1024])
                 .and_then(|(socket, data, _, _)| {
-                              let packet = decode(&data).unwrap();
-                              info.fill(packet);
-                              Ok(socket)
-                          })
+                    let packet = decode(&data).unwrap();
+                    info.fill(packet);
+                    Ok(socket)
+                })
                 .wait()
                 .map(|socket| socket)
                 .unwrap();
@@ -477,7 +481,8 @@ impl Monome {
     /// }
     /// ```
     pub fn new<S>(prefix: S) -> Result<Monome, String>
-        where S: Into<String>
+    where
+        S: Into<String>,
     {
         Monome::new_with_port(prefix, SERIALOSC_PORT)
     }
@@ -507,19 +512,22 @@ impl Monome {
     /// }
     /// ```
     pub fn new_with_port<S>(prefix: S, serialosc_port: i32) -> Result<Monome, String>
-        where S: Into<String>
+    where
+        S: Into<String>,
     {
         let (sender, receiver) = futures::sync::mpsc::channel(16);
         let (tx, rx) = channel();
 
         let prefix = prefix.into();
 
-        let (info, socket, name, device_type, device_port) = Monome::setup(serialosc_port, &prefix)
-            .unwrap();
+        let (info, socket, name, device_type, device_port) =
+            Monome::setup(serialosc_port, &prefix).unwrap();
 
         let t = Transport::new(device_port, socket, tx, receiver);
 
-        thread::spawn(move || { tokio::run(t.map_err(|e| error!("server error = {:?}", e))); });
+        thread::spawn(move || {
+            tokio::run(t.map_err(|e| error!("server error = {:?}", e)));
+        });
 
         let monome = Monome {
             tx: sender,
@@ -561,11 +569,14 @@ impl Monome {
     ///            8);
     /// ```
     pub fn set<'a, A>(&mut self, x: i32, y: i32, arg: A)
-        where A: IntoAddrAndArgs<'a, OscType>
+    where
+        A: IntoAddrAndArgs<'a, OscType>,
     {
         let (frag, arg) = arg.as_addr_frag_and_args();
-        self.send(&format!("/grid/led/{}set", frag).to_string(),
-                  vec![OscType::Int(x), OscType::Int(y), arg]);
+        self.send(
+            &format!("/grid/led/{}set", frag).to_string(),
+            vec![OscType::Int(x), OscType::Int(y), arg],
+        );
     }
 
     /// Set all led of the grid to an intensity
@@ -586,7 +597,8 @@ impl Monome {
     /// monome.all(false);
     /// ```
     pub fn all<'a, A>(&mut self, arg: A)
-        where A: IntoAddrAndArgs<'a, OscType>
+    where
+        A: IntoAddrAndArgs<'a, OscType>,
     {
         let (frag, arg) = arg.as_addr_frag_and_args();
         self.send(&format!("/grid/led/{}all", frag).to_string(), vec![arg]);
@@ -707,7 +719,8 @@ impl Monome {
     /// monome.map(8, 0, &[1, 3, 7, 15, 32, 63, 127, 0b11111111]);
     /// ```
     pub fn map<'a, A>(&mut self, x_offset: i32, y_offset: i32, masks: A)
-        where A: IntoAddrAndArgs<'a, Vec<OscType>> + Sized
+    where
+        A: IntoAddrAndArgs<'a, Vec<OscType>> + Sized,
     {
         let (frag, mut arg) = masks.as_addr_frag_and_args();
 
@@ -744,7 +757,8 @@ impl Monome {
     ///            &0b01010101u8 /* every other led, 85 in decimal */);
     /// ```
     pub fn row<'a, A>(&mut self, x_offset: i32, y: i32, leds: &A)
-        where A: IntoAddrAndArgs<'a, Vec<OscType>>
+    where
+        A: IntoAddrAndArgs<'a, Vec<OscType>>,
     {
         let (frag, arg) = leds.as_addr_frag_and_args();
 
@@ -782,7 +796,8 @@ impl Monome {
     ///            &0b01010101u8 /* every other led, 85 in decimal */);
     /// ```
     pub fn col<'a, A>(&mut self, x: i32, y_offset: i32, leds: &A)
-        where A: IntoAddrAndArgs<'a, Vec<OscType>>
+    where
+        A: IntoAddrAndArgs<'a, Vec<OscType>>,
     {
         let (frag, mut arg) = leds.as_addr_frag_and_args();
 
@@ -798,8 +813,10 @@ impl Monome {
     /// Enable or disable all tilt sensors (usually, there is only one), which allows receiving the
     /// `/<prefix>/tilt/` events, with the n,x,y,z coordinates as parameters.
     pub fn tilt_all(&mut self, on: bool) {
-        self.send("/tilt/set",
-                  vec![OscType::Int(0), OscType::Int(if on { 1 } else { 0 })]);
+        self.send(
+            "/tilt/set",
+            vec![OscType::Int(0), OscType::Int(if on { 1 } else { 0 })],
+        );
     }
 
     /// Set the rotation for this device. This is either 0, 90, 180 or 270
@@ -879,8 +896,7 @@ impl Monome {
         debug!("⇨ {:?}", packet);
         let bytes: Vec<u8> = encode(&packet).unwrap();
         match self.tx.try_send(bytes) {
-            Ok(()) => {
-            }
+            Ok(()) => {}
             Err(b) => {
                 let full = b.is_full();
                 let disconnected = b.is_disconnected();
@@ -966,8 +982,13 @@ impl Monome {
                     None
                 } else if message.addr.starts_with(&self.prefix) {
                     if let Some(args) = &message.args {
-                        if message.addr.starts_with(&format!("{}/grid/key", self.prefix)) {
-                            if let [OscType::Int(x), OscType::Int(y), OscType::Int(v)] = args.as_slice() {
+                        if message
+                            .addr
+                            .starts_with(&format!("{}/grid/key", self.prefix))
+                        {
+                            if let [OscType::Int(x), OscType::Int(y), OscType::Int(v)] =
+                                args.as_slice()
+                            {
                                 info!("Key: {}:{} {}", *x, *y, *v);
                                 let direction = if *v == 1 {
                                     KeyDirection::Down
@@ -986,18 +1007,18 @@ impl Monome {
                         } else if message.addr.starts_with(&format!("{}/tilt", self.prefix)) {
                             if let [OscType::Int(n), OscType::Int(x), OscType::Int(y), OscType::Int(z)] =
                                 args.as_slice()
-                                {
-                                    info!("Tilt {} {},{},{}", *n, *x, *y, *z);
-                                    return Some(MonomeEvent::Tilt {
-                                        n: *n,
-                                        x: *x,
-                                        y: *y,
-                                        z: *z,
-                                    });
-                                } else {
-                                    error!("Invalid /tilt message received {:?}.", message);
-                                    None
-                                }
+                            {
+                                info!("Tilt {} {},{},{}", *n, *x, *y, *z);
+                                return Some(MonomeEvent::Tilt {
+                                    n: *n,
+                                    x: *x,
+                                    y: *y,
+                                    z: *z,
+                                });
+                            } else {
+                                error!("Invalid /tilt message received {:?}.", message);
+                                None
+                            }
                         } else {
                             error!("not handled: {:?}", message.addr);
                             return None;
@@ -1018,33 +1039,35 @@ impl Monome {
 
 impl fmt::Debug for Monome {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-               "Monome {}\ntype: {}\nport: {}\nhost: {}\n\
-               id: {}\nprefix: {}\nrotation: {}\nsize: {}:{}",
-               self.name,
-               self.device_type,
-               self.port,
-               self.host,
-               self.id,
-               self.prefix,
-               self.rotation,
-               self.size.0,
-               self.size.1)
+        write!(
+            f,
+            "Monome {}\ntype: {}\nport: {}\nhost: {}\n\
+             id: {}\nprefix: {}\nrotation: {}\nsize: {}:{}",
+            self.name,
+            self.device_type,
+            self.port,
+            self.host,
+            self.id,
+            self.prefix,
+            self.rotation,
+            self.size.0,
+            self.size.1
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use Monome;
     use build_osc_message;
-    use std::thread;
-    use tokio::net::UdpSocket;
-    use SERIALOSC_PORT;
     use rosc::decoder::decode;
     use rosc::encoder::encode;
     use rosc::{OscPacket, OscType};
+    use std::sync::{Arc, Condvar, Mutex};
+    use std::thread;
+    use tokio::net::UdpSocket;
     use tokio::prelude::*;
-    use std::sync::{Arc, Mutex, Condvar};
+    use Monome;
+    use SERIALOSC_PORT;
 
     #[test]
     fn setup() {
@@ -1083,20 +1106,24 @@ mod tests {
                 panic!("bad message");
             };
 
-            let packet = build_osc_message("/serialosc/device",
-                                           vec![OscType::String("monome grid test".into()),
-                                                OscType::String("m123123".into()),
-                                                OscType::Int(1234)]);
+            let packet = build_osc_message(
+                "/serialosc/device",
+                vec![
+                    OscType::String("monome grid test".into()),
+                    OscType::String("m123123".into()),
+                    OscType::Int(1234),
+                ],
+            );
 
             let bytes: Vec<u8> = encode(&packet).unwrap();
 
             let app_addr = format!("127.0.0.1:{}", app_port).parse().unwrap();
             let (mut socket, _) = socket.send_dgram(bytes, &app_addr).wait().unwrap();
 
-
-            fn receive_from_app_and_expect(socket: UdpSocket,
-                                           expected_addr: String)
-                                           -> (UdpSocket, Option<Vec<OscType>>) {
+            fn receive_from_app_and_expect(
+                socket: UdpSocket,
+                expected_addr: String,
+            ) -> (UdpSocket, Option<Vec<OscType>>) {
                 let (socket, data, _, _) = socket.recv_dgram(vec![0u8; 1024]).wait().unwrap();
                 let packet = decode(&data).unwrap();
 
@@ -1110,8 +1137,8 @@ mod tests {
                 (socket, msg.args)
             }
 
-            let (device_socket, args) = receive_from_app_and_expect(device_socket,
-                                                                    "/sys/port".into());
+            let (device_socket, args) =
+                receive_from_app_and_expect(device_socket, "/sys/port".into());
             let port = if let OscType::Int(port) = args.unwrap()[0] {
                 assert!(port == 10000);
                 port
@@ -1119,8 +1146,8 @@ mod tests {
                 panic!("bad port");
             };
             assert!(port == 10000);
-            let (device_socket, args) = receive_from_app_and_expect(device_socket,
-                                                                    "/sys/host".into());
+            let (device_socket, args) =
+                receive_from_app_and_expect(device_socket, "/sys/host".into());
             let argss = args.unwrap();
             let host = if let OscType::String(ref host) = argss[0] {
                 host
@@ -1128,8 +1155,8 @@ mod tests {
                 panic!("bad host");
             };
             assert!(host == "127.0.0.1");
-            let (device_socket, args) = receive_from_app_and_expect(device_socket,
-                                                                    "/sys/prefix".into());
+            let (device_socket, args) =
+                receive_from_app_and_expect(device_socket, "/sys/prefix".into());
             let argss = args.unwrap();
             let prefix = if let OscType::String(ref prefix) = argss[0] {
                 prefix
@@ -1137,23 +1164,27 @@ mod tests {
                 panic!("bad prefix");
             };
             assert!(prefix == "/plop");
-            let (_device_socket, args) = receive_from_app_and_expect(device_socket,
-                                                                     "/sys/info".into());
+            let (_device_socket, args) =
+                receive_from_app_and_expect(device_socket, "/sys/info".into());
             assert!(args.is_none());
 
-            let message_addrs = vec!["/sys/port",
-                                     "/sys/host",
-                                     "/sys/id",
-                                     "/sys/prefix",
-                                     "/sys/rotation",
-                                     "/sys/size"];
+            let message_addrs = vec![
+                "/sys/port",
+                "/sys/host",
+                "/sys/id",
+                "/sys/prefix",
+                "/sys/rotation",
+                "/sys/size",
+            ];
 
-            let message_args = vec![vec![OscType::Int(fake_device_port)],
-                                    vec![OscType::String("127.0.0.1".into())],
-                                    vec![OscType::String("monome blabla".into())],
-                                    vec![OscType::String("/plop".into())],
-                                    vec![OscType::Int(0)],
-                                    vec![OscType::Int(16), OscType::Int(8)]];
+            let message_args = vec![
+                vec![OscType::Int(fake_device_port)],
+                vec![OscType::String("127.0.0.1".into())],
+                vec![OscType::String("monome blabla".into())],
+                vec![OscType::String("/plop".into())],
+                vec![OscType::Int(0)],
+                vec![OscType::Int(16), OscType::Int(8)],
+            ];
 
             assert!(message_addrs.len() == message_args.len());
 

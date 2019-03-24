@@ -13,8 +13,8 @@ fn main() {
 
     let mut v = [0; 64];
 
-    let mut sp : isize = 1;
-    let mut dir : isize = 1;
+    let mut sp: isize = 1;
+    let mut dir: isize = 1;
 
     loop {
         for i in 0..8 {
@@ -23,10 +23,10 @@ fn main() {
             }
         }
 
-        let mut grid: Vec<u8> = vec!(0; 128);
+        let mut grid: Vec<u8> = vec![0; 128];
         for i in 0..8 {
             for j in 0..16 {
-                grid[i * 16 + j] =  (sp / ((i + 1) as isize)) as u8;
+                grid[i * 16 + j] = (sp / ((i + 1) as isize)) as u8;
             }
         }
 
@@ -48,4 +48,3 @@ fn main() {
         thread::sleep(refresh);
     }
 }
-
