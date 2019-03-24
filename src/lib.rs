@@ -965,51 +965,39 @@ impl Monome {
                     debug!("/sys received: {:?}", message);
                     None
                 } else if message.addr.starts_with(&self.prefix) {
-                    if let Some(args) = message.args {
-                        if message
-                               .addr
-                               .starts_with(&format!("{}/grid/key", self.prefix)) {
-                            if let OscType::Int(x) = args[0] {
-                                if let OscType::Int(y) = args[1] {
-                                    if let OscType::Int(v) = args[2] {
-                                        info!("Key: {}:{} {}", x, y, v);
-                                        return Some(MonomeEvent::GridKey {
-                                                        x,
-                                                        y,
-                                                        direction: if v == 1 {
-                                                            KeyDirection::Down
-                                                        } else {
-                                                            KeyDirection::Up
-                                                        },
-                                                    });
-                                    } else {
-                                        None
-                                    }
+                    if let Some(args) = &message.args {
+                        if message.addr.starts_with(&format!("{}/grid/key", self.prefix)) {
+                            if let [OscType::Int(x), OscType::Int(y), OscType::Int(v)] = args.as_slice() {
+                                info!("Key: {}:{} {}", *x, *y, *v);
+                                let direction = if *v == 1 {
+                                    KeyDirection::Down
                                 } else {
-                                    None
-                                }
+                                    KeyDirection::Up
+                                };
+                                return Some(MonomeEvent::GridKey {
+                                    x: *x,
+                                    y: *y,
+                                    direction,
+                                });
                             } else {
+                                error!("Invalid /grid/key message received {:?}.", message);
                                 None
                             }
                         } else if message.addr.starts_with(&format!("{}/tilt", self.prefix)) {
-                            if let OscType::Int(n) = args[0] {
-                                if let OscType::Int(x) = args[1] {
-                                    if let OscType::Int(y) = args[2] {
-                                        if let OscType::Int(z) = args[3] {
-                                            info!("Tilt {} {},{},{}", n, x, y, z);
-                                            return Some(MonomeEvent::Tilt { n, x, y, z });
-                                        } else {
-                                            None
-                                        }
-                                    } else {
-                                        None
-                                    }
+                            if let [OscType::Int(n), OscType::Int(x), OscType::Int(y), OscType::Int(z)] =
+                                args.as_slice()
+                                {
+                                    info!("Tilt {} {},{},{}", *n, *x, *y, *z);
+                                    return Some(MonomeEvent::Tilt {
+                                        n: *n,
+                                        x: *x,
+                                        y: *y,
+                                        z: *z,
+                                    });
                                 } else {
+                                    error!("Invalid /tilt message received {:?}.", message);
                                     None
                                 }
-                            } else {
-                                None
-                            }
                         } else {
                             error!("not handled: {:?}", message.addr);
                             return None;
