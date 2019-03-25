@@ -374,13 +374,11 @@ impl Monome {
             let rv = match packet {
                 OscPacket::Message(message) => (|| {
                     if message.addr == "/serialosc/device" {
-                        if let Some(args) = message.args {
-                            if let OscType::String(ref name) = args[0] {
-                                if let OscType::String(ref device_type) = args[1] {
-                                    if let OscType::Int(port) = args[2] {
-                                        return Ok((name.clone(), device_type.clone(), port));
-                                    }
-                                }
+                        if let Some(args) = &message.args {
+                            if let [OscType::String(ref name), OscType::String(ref device_type), OscType::Int(port)] =
+                                args.as_slice()
+                            {
+                                return Ok(((*name).to_string(), (*device_type).to_string(), *port));
                             }
                         }
                     }
@@ -742,8 +740,8 @@ impl Monome {
     /// 64, and can be 8 for a 128 or 256.
     /// * `y` - which row to set, 0-indexed. This must be lower than the number of rows of the
     /// device.
-    /// * `leds` - either the list of masks that determine the pattern to light on for a particular 8 led
-    /// long section, or a vector of either int or bool, one element for each led.
+    /// * `leds` - either the list of masks that determine the pattern to light on for a particular
+    /// 8 led long section, or a vector of either int or bool, one element for each led.
     ///
     /// # Example
     ///
@@ -780,8 +778,8 @@ impl Monome {
     /// device.
     /// * `y_offset` - at which 8 button offset to start setting the leds. This is always 0 for a
     /// 64, and can be 8 for a 128 or 256.
-    /// * `leds` - either the list of masks that determine the pattern to light on for a particular 8 led
-    /// long section, or a vector of either int or bool, one element for each led.
+    /// * `leds` - either the list of masks that determine the pattern to light on for a particular
+    /// 8 led long section, or a vector of either int or bool, one element for each led.
     ///
     /// # Example
     ///
