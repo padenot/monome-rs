@@ -974,10 +974,8 @@ impl Monome {
                             }
                         };
                     }
-                    None
                 } else if message.addr.starts_with("/sys") {
                     debug!("/sys received: {:?}", message);
-                    None
                 } else if message.addr.starts_with(&self.prefix) {
                     if let Some(args) = &message.args {
                         if message
@@ -998,10 +996,8 @@ impl Monome {
                                     y: *y,
                                     direction,
                                 });
-                            } else {
-                                error!("Invalid /grid/key message received {:?}.", message);
-                                None
                             }
+                            error!("Invalid /grid/key message received {:?}.", message);
                         } else if message.addr.starts_with(&format!("{}/tilt", self.prefix)) {
                             if let [OscType::Int(n), OscType::Int(x), OscType::Int(y), OscType::Int(z)] =
                                 args.as_slice()
@@ -1013,20 +1009,14 @@ impl Monome {
                                     y: *y,
                                     z: *z,
                                 });
-                            } else {
-                                error!("Invalid /tilt message received {:?}.", message);
-                                None
                             }
+                            error!("Invalid /tilt message received {:?}.", message);
                         } else {
                             error!("not handled: {:?}", message.addr);
-                            return None;
                         }
-                    } else {
-                        None
                     }
-                } else {
-                    None
                 }
+                return None;
             }
             OscPacket::Bundle(_bundle) => {
                 panic!("wtf.");
