@@ -10,9 +10,12 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use tokio::net::UdpSocket;
 use tokio::prelude::*;
+use tokio::timer::Delay;
+use futures::future::Either;
 
 use futures::sync::mpsc as future_mpsc;
 
@@ -326,7 +329,94 @@ impl<'a> IntoAddrAndArgs<'a, Vec<OscType>> for &'a [bool; 64] {
     }
 }
 
+#[derive(Debug)]
+struct MonomeDevice {
+    name: String,
+    device_type: String,
+    port: i32
+}
+
+impl MonomeDevice {
+    fn new(name: &str, device_type: &str, port: i32) -> MonomeDevice {
+        MonomeDevice {
+            name: name.to_string(),
+            device_type: device_type.to_string(),
+            port
+        }
+    }
+    fn get_info() -> Result<MonomeInfo, String> {
+        Err("asd".to_string())
+    }
+    fn setup() -> Result<Monome, String> {
+        Err("asd".to_string())
+    }
+}
+
 impl Monome {
+    fn list_devices(socket: UdpSocket, serialosc_port: i32)
+       -> (UdpSocket, Result<Vec<MonomeDevice>, String>) {
+        let mut devices = Vec::<MonomeDevice>::new();
+        let server_port = socket.local_addr().unwrap().port();
+        let server_ip = socket.local_addr().unwrap().ip().to_string();
+
+        let packet = build_osc_message(
+            "/serialosc/list",
+            vec![
+                OscType::String(server_ip),
+                OscType::Int(i32::from(server_port)),
+            ],
+        );
+
+        let bytes: Vec<u8> = encode(&packet).unwrap();
+
+        let addr = format!("127.0.0.1:{}", serialosc_port).parse().unwrap();
+        let (mut socket, _) = socket.send_dgram(bytes, &addr).wait().unwrap();
+        // loop until we find the device list message. It can be that some other messages are
+        // received in the meantime, for example, tilt messages, or keypresses. Ignore them
+        // here. If no message have been received for 100ms, consider we have all the messages and
+        // carry on.
+        let mut elapsed = false;
+        while !elapsed {
+            let fut = socket.recv_dgram(vec![0u8; 1024]).
+                select2(Delay::new(Instant::now() + Duration::from_millis(100)));
+            let task = tokio::runtime::current_thread::block_on_all(fut);
+            socket = match task {
+                Ok(Either::A(((s, data, _, _), _))) => {
+                    socket = s;
+                    let packet = decode(&data).unwrap();
+
+                    match packet {
+                        OscPacket::Message(message) =>
+                            if message.addr == "/serialosc/device" {
+                                if let Some(args) = &message.args {
+                                    if let [OscType::String(ref name), OscType::String(ref device_type), OscType::Int(port)] =
+                                        args.as_slice()
+                                        {
+                                            devices.push(MonomeDevice::new(name, device_type, *port));
+                                        }
+                                } else {
+                                    //return (socket, Err("Bad format".to_string()))
+                                }
+                            }
+                        OscPacket::Bundle(_bundle) => {
+                          eprintln!("Unexpected bundle received during setup");
+                        }
+                    };
+
+                    socket
+                }
+                Ok(Either::B((_, d))) => {
+                    elapsed = true;
+                    d.into_parts().socket
+                }
+                Err(e) => {
+                    panic!("{:?}", e);
+                }
+            };
+        };
+
+        (socket, Ok(devices))
+    }
     fn setup(
         serialosc_port: i32,
         prefix: &String,
@@ -349,52 +439,12 @@ impl Monome {
         };
 
         let server_port = socket.local_addr().unwrap().port();
-        let server_ip = socket.local_addr().unwrap().ip().to_string();
 
-        let packet = build_osc_message(
-            "/serialosc/list",
-            vec![
-                OscType::String(server_ip),
-                OscType::Int(i32::from(server_port)),
-            ],
-        );
+        let rv = Monome::list_devices(socket, serialosc_port);
 
-        let bytes: Vec<u8> = encode(&packet).unwrap();
-
-        let addr = format!("127.0.0.1:{}", serialosc_port).parse().unwrap();
-        let (mut socket, _) = socket.send_dgram(bytes, &addr).wait().unwrap();
-        // loop until we find the device list message. It can be that some other messages are
-        // received in the meantime, for example, tilt messages, or keypresses. Ignore them
-        // here.
-        let rv = loop {
-            let (s, data, _, _) = socket.recv_dgram(vec![0u8; 1024]).wait().unwrap();
-            socket = s;
-            let packet = decode(&data).unwrap();
-
-            let rv = match packet {
-                OscPacket::Message(message) => (|| {
-                    if message.addr == "/serialosc/device" {
-                        if let Some(args) = &message.args {
-                            if let [OscType::String(ref name), OscType::String(ref device_type), OscType::Int(port)] =
-                                args.as_slice()
-                            {
-                                return Ok(((*name).to_string(), (*device_type).to_string(), *port));
-                            }
-                        }
-                    }
-                    Err("Bad format")
-                })(),
-                OscPacket::Bundle(_bundle) => Err("Unexpected bundle received during setup"),
-            };
-            match rv {
-                Ok(rv) => {
-                    break (socket, rv);
-                }
-                Err(_) => {}
-            }
-        };
-
-        let (socket, (name, device_type, port)) = rv;
+        let socket = rv.0;
+        let device = & rv.1.unwrap()[0];
+        let (name, device_type, port) = (device.name.to_string(), device.device_type.to_string(), device.port);
 
         let device_address = format!("127.0.0.1:{}", port);
         let add = device_address.parse();
