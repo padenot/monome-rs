@@ -330,9 +330,13 @@ impl<'a> IntoAddrAndArgs<'a, Vec<OscType>> for &'a [bool; 64] {
 }
 
 #[derive(Debug)]
-struct MonomeDevice {
+/// A struct with basic informations about a Monome device, available without having set it up
+pub struct MonomeDevice {
+    /// Name of the device with serial number
     name: String,
+    /// Device type
     device_type: String,
+    /// Port at which this device is available
     port: i32
 }
 
@@ -344,17 +348,12 @@ impl MonomeDevice {
             port
         }
     }
-    fn get_info() -> Result<MonomeInfo, String> {
-        Err("asd".to_string())
-    }
-    fn setup() -> Result<Monome, String> {
-        Err("asd".to_string())
-    }
 }
 
 impl Monome {
-    fn list_devices(socket: UdpSocket, serialosc_port: i32)
-       -> (UdpSocket, Result<Vec<MonomeDevice>, String>) {
+    pub fn list_devices_with_port(serialosc_port: i32)
+       -> Result<Vec<MonomeDevice>, String> {
+        let socket = Monome::new_bound_socket();
         let mut devices = Vec::<MonomeDevice>::new();
         let server_port = socket.local_addr().unwrap().port();
         let server_ip = socket.local_addr().unwrap().ip().to_string();
@@ -375,8 +374,7 @@ impl Monome {
         // received in the meantime, for example, tilt messages, or keypresses. Ignore them
         // here. If no message have been received for 100ms, consider we have all the messages and
         // carry on.
-        let mut elapsed = false;
-        while !elapsed {
+        loop {
             let fut = socket.recv_dgram(vec![0u8; 1024]).
                 select2(Delay::new(Instant::now() + Duration::from_millis(100)));
             let task = tokio::runtime::current_thread::block_on_all(fut);
@@ -395,7 +393,7 @@ impl Monome {
                                             devices.push(MonomeDevice::new(name, device_type, *port));
                                         }
                                 } else {
-                                    //return (socket, Err("Bad format".to_string()))
+                                    break
                                 }
                             }
                         OscPacket::Bundle(_bundle) => {
@@ -405,9 +403,9 @@ impl Monome {
 
                     socket
                 }
-                Ok(Either::B((_, d))) => {
-                    elapsed = true;
-                    d.into_parts().socket
+                Ok(Either::B(_)) => {
+                    // timeout
+                    break
                 }
                 Err(e) => {
                     panic!("{:?}", e);
@@ -415,15 +413,15 @@ impl Monome {
             };
         };
 
-        (socket, Ok(devices))
+        Ok(devices)
     }
-    fn setup(
-        serialosc_port: i32,
-        prefix: &String,
-    ) -> Result<(MonomeInfo, UdpSocket, String, String, i32), String> {
+    pub fn list_devices() -> Result<Vec<MonomeDevice>, String> {
+        Monome::list_devices_with_port(SERIALOSC_PORT)
+    }
+    fn new_bound_socket() -> UdpSocket {
         // find a free port
         let mut port = 10000;
-        let socket = loop {
+        loop {
             let server_addr = format!("127.0.0.1:{}", port).parse().unwrap();
             let bind_result = UdpSocket::bind(&server_addr);
             match bind_result {
@@ -436,20 +434,20 @@ impl Monome {
                 }
             }
             port += 1;
-        };
-
-        let server_port = socket.local_addr().unwrap().port();
-
-        let rv = Monome::list_devices(socket, serialosc_port);
-
-        let socket = rv.0;
-        let device = & rv.1.unwrap()[0];
+        }
+    }
+    fn setup(
+        prefix: String,
+        device: &MonomeDevice) -> Result<(MonomeInfo, UdpSocket, String, String, i32), String>
+        {
         let (name, device_type, port) = (device.name.to_string(), device.device_type.to_string(), device.port);
 
         let device_address = format!("127.0.0.1:{}", port);
         let add = device_address.parse();
         let addr: SocketAddr = add.unwrap();
 
+        let socket = Monome::new_bound_socket();
+        let server_port = socket.local_addr().unwrap().port();
         let packet = build_osc_message("/sys/port", vec![OscType::Int(i32::from(server_port))]);
         let bytes: Vec<u8> = encode(&packet).unwrap();
         let socket = socket
@@ -467,7 +465,7 @@ impl Monome {
             .map(|(s, _)| s)
             .unwrap();
 
-        let packet = build_osc_message("/sys/prefix", vec![OscType::String(prefix.to_string())]);
+        let packet = build_osc_message("/sys/prefix", vec![OscType::String((*prefix).to_string().clone())]);
         let bytes: Vec<u8> = encode(&packet).unwrap();
         let socket = socket
             .send_dgram(bytes, &addr)
@@ -505,7 +503,8 @@ impl Monome {
 
         Ok((info, socket, name, device_type, port))
     }
-    /// Sets up a monome, with a particular prefix
+    /// Sets up the "first" monome device, with a particular prefix. When multiple devices are
+    /// plugged in, it's unclear which one is activated, however this is rare.
     ///
     /// # Arguments
     ///
@@ -534,7 +533,9 @@ impl Monome {
     {
         Monome::new_with_port(prefix, SERIALOSC_PORT)
     }
-    /// Sets up a monome, with a particular prefix and a non-standard port for serialosc.
+    /// Sets up the "first" monome device, with a particular prefix and a non-standard port for
+    /// serialosc. When multiple devices are plugged in, it's unclear which one is activated,
+    /// however this is rare.
     ///
     /// # Arguments
     ///
@@ -563,21 +564,29 @@ impl Monome {
     where
         S: Into<String>,
     {
-        let (sender, receiver) = futures::sync::mpsc::channel(16);
-        let (tx, rx) = channel();
+        let devices = Monome::list_devices_with_port(serialosc_port)?;
+        if devices.is_empty() {
+            return Err("No devices detected".to_string());
+        }
+        Monome::from_device(prefix.into(), &devices[0])
+    }
 
-        let prefix = prefix.into();
+    pub fn from_device(prefix: String, device: &MonomeDevice) -> Result<Monome, String>
+    {
 
         let (info, socket, name, device_type, device_port) =
-            Monome::setup(serialosc_port, &prefix).unwrap();
+            Monome::setup(prefix.clone(), device)?;
 
+        let (sender, receiver) = futures::sync::mpsc::channel(16);
+        let (tx, rx) = channel();
         let t = Transport::new(device_port, socket, tx, receiver);
 
         thread::spawn(move || {
             tokio::run(t.map_err(|e| error!("server error = {:?}", e)));
         });
 
-        let monome = Monome {
+
+        Ok(Monome {
             tx: sender,
             rx,
             name,
@@ -588,8 +597,7 @@ impl Monome {
             prefix,
             rotation: info.rotation.unwrap(),
             size: info.size.unwrap(),
-        };
-        return Ok(monome);
+        })
     }
 
     /// Set a single led on a grid on or off.
