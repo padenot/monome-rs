@@ -12,10 +12,10 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use futures::future::Either;
 use tokio::net::UdpSocket;
 use tokio::prelude::*;
 use tokio::timer::Delay;
-use futures::future::Either;
 
 use futures::sync::mpsc as future_mpsc;
 
@@ -335,7 +335,7 @@ pub struct MonomeDevice {
     /// Device type
     device_type: String,
     /// Port at which this device is available
-    port: i32
+    port: i32,
 }
 
 impl fmt::Display for MonomeDevice {
@@ -349,7 +349,7 @@ impl MonomeDevice {
         MonomeDevice {
             name: name.to_string(),
             device_type: device_type.to_string(),
-            port
+            port,
         }
     }
 }
@@ -375,10 +375,16 @@ impl Monome {
     }
     fn setup<S>(
         prefix: S,
-        device: &MonomeDevice) -> Result<(MonomeInfo, UdpSocket, String, String, i32), String>
-        where S: Into<String>
-        {
-        let (name, device_type, port) = (device.name.to_string(), device.device_type.to_string(), device.port);
+        device: &MonomeDevice,
+    ) -> Result<(MonomeInfo, UdpSocket, String, String, i32), String>
+    where
+        S: Into<String>,
+    {
+        let (name, device_type, port) = (
+            device.name.to_string(),
+            device.device_type.to_string(),
+            device.port,
+        );
 
         let device_address = format!("127.0.0.1:{}", port);
         let add = device_address.parse();
@@ -468,8 +474,7 @@ impl Monome {
     ///         }
     ///     }
     /// ```
-    pub fn enumerate_devices_with_port(serialosc_port: i32)
-       -> Result<Vec<MonomeDevice>, String> {
+    pub fn enumerate_devices_with_port(serialosc_port: i32) -> Result<Vec<MonomeDevice>, String> {
         let socket = Monome::new_bound_socket();
         let mut devices = Vec::<MonomeDevice>::new();
         let server_port = socket.local_addr().unwrap().port();
@@ -492,8 +497,9 @@ impl Monome {
         // here. If no message have been received for 100ms, consider we have all the messages and
         // carry on.
         loop {
-            let fut = socket.recv_dgram(vec![0u8; 1024]).
-                select2(Delay::new(Instant::now() + Duration::from_millis(100)));
+            let fut = socket
+                .recv_dgram(vec![0u8; 1024])
+                .select2(Delay::new(Instant::now() + Duration::from_millis(100)));
             let task = tokio::runtime::current_thread::block_on_all(fut);
             socket = match task {
                 Ok(Either::A(((s, data, _, _), _))) => {
@@ -501,20 +507,21 @@ impl Monome {
                     let packet = decode(&data).unwrap();
 
                     match packet {
-                        OscPacket::Message(message) =>
+                        OscPacket::Message(message) => {
                             if message.addr == "/serialosc/device" {
                                 if let Some(args) = &message.args {
                                     if let [OscType::String(ref name), OscType::String(ref device_type), OscType::Int(port)] =
                                         args.as_slice()
-                                        {
-                                            devices.push(MonomeDevice::new(name, device_type, *port));
-                                        }
+                                    {
+                                        devices.push(MonomeDevice::new(name, device_type, *port));
+                                    }
                                 } else {
-                                    break
+                                    break;
                                 }
                             }
+                        }
                         OscPacket::Bundle(_bundle) => {
-                          eprintln!("Unexpected bundle received during setup");
+                            eprintln!("Unexpected bundle received during setup");
                         }
                     };
 
@@ -522,13 +529,13 @@ impl Monome {
                 }
                 Ok(Either::B(_)) => {
                     // timeout
-                    break
+                    break;
                 }
                 Err(e) => {
                     panic!("{:?}", e);
                 }
             };
-        };
+        }
 
         Ok(devices)
     }
@@ -661,11 +668,11 @@ impl Monome {
     /// }
     /// ```
     pub fn from_device<S>(device: &MonomeDevice, prefix: S) -> Result<Monome, String>
-        where S: Into<String>
+    where
+        S: Into<String>,
     {
         let prefix = prefix.into();
-        let (info, socket, name, device_type, device_port) =
-            Monome::setup(&*prefix, device)?;
+        let (info, socket, name, device_type, device_port) = Monome::setup(&*prefix, device)?;
 
         let (sender, receiver) = futures::sync::mpsc::channel(16);
         let (tx, rx) = channel();
