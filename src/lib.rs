@@ -357,73 +357,6 @@ impl MonomeDevice {
 }
 
 impl Monome {
-    pub fn list_devices_with_port(serialosc_port: i32)
-       -> Result<Vec<MonomeDevice>, String> {
-        let socket = Monome::new_bound_socket();
-        let mut devices = Vec::<MonomeDevice>::new();
-        let server_port = socket.local_addr().unwrap().port();
-        let server_ip = socket.local_addr().unwrap().ip().to_string();
-
-        let packet = build_osc_message(
-            "/serialosc/list",
-            vec![
-                OscType::String(server_ip),
-                OscType::Int(i32::from(server_port)),
-            ],
-        );
-
-        let bytes: Vec<u8> = encode(&packet).unwrap();
-
-        let addr = format!("127.0.0.1:{}", serialosc_port).parse().unwrap();
-        let (mut socket, _) = socket.send_dgram(bytes, &addr).wait().unwrap();
-        // loop until we find the device list message. It can be that some other messages are
-        // received in the meantime, for example, tilt messages, or keypresses. Ignore them
-        // here. If no message have been received for 100ms, consider we have all the messages and
-        // carry on.
-        loop {
-            let fut = socket.recv_dgram(vec![0u8; 1024]).
-                select2(Delay::new(Instant::now() + Duration::from_millis(100)));
-            let task = tokio::runtime::current_thread::block_on_all(fut);
-            socket = match task {
-                Ok(Either::A(((s, data, _, _), _))) => {
-                    socket = s;
-                    let packet = decode(&data).unwrap();
-
-                    match packet {
-                        OscPacket::Message(message) =>
-                            if message.addr == "/serialosc/device" {
-                                if let Some(args) = &message.args {
-                                    if let [OscType::String(ref name), OscType::String(ref device_type), OscType::Int(port)] =
-                                        args.as_slice()
-                                        {
-                                            devices.push(MonomeDevice::new(name, device_type, *port));
-                                        }
-                                } else {
-                                    break
-                                }
-                            }
-                        OscPacket::Bundle(_bundle) => {
-                          eprintln!("Unexpected bundle received during setup");
-                        }
-                    };
-
-                    socket
-                }
-                Ok(Either::B(_)) => {
-                    // timeout
-                    break
-                }
-                Err(e) => {
-                    panic!("{:?}", e);
-                }
-            };
-        };
-
-        Ok(devices)
-    }
-    pub fn list_devices() -> Result<Vec<MonomeDevice>, String> {
-        Monome::list_devices_with_port(SERIALOSC_PORT)
-    }
     fn new_bound_socket() -> UdpSocket {
         // find a free port
         let mut port = 10000;
@@ -510,6 +443,127 @@ impl Monome {
 
         Ok((info, socket, name, device_type, port))
     }
+    /// Enumerate all monome devices on a non-standard serialosc port.
+    ///
+    /// If successful, this returns a list of MonomeDevice, which contain basic informations about
+    /// the device: type, serial number, port allocated by serialosc.
+    ///
+    /// # Arguments
+    ///
+    /// * `serialosc_port`: the port on which serialosc is running
+    ///
+    /// # Example
+    ///
+    /// Enumerate and display all monome device on port 1234:
+    ///
+    /// ```no_run
+    ///     use monome::Monome;
+    ///     let enumeration = Monome::enumerate_devices_with_port(1234);
+    ///     match enumeration {
+    ///         Ok(devices) => {
+    ///             for device in &devices {
+    ///                println!("{}", device);
+    ///             }
+    ///         }
+    ///         Err(e) => {
+    ///             eprintln!("Error: {}", e);
+    ///         }
+    ///     }
+    /// ```
+    pub fn enumerate_devices_with_port(serialosc_port: i32)
+       -> Result<Vec<MonomeDevice>, String> {
+        let socket = Monome::new_bound_socket();
+        let mut devices = Vec::<MonomeDevice>::new();
+        let server_port = socket.local_addr().unwrap().port();
+        let server_ip = socket.local_addr().unwrap().ip().to_string();
+
+        let packet = build_osc_message(
+            "/serialosc/list",
+            vec![
+                OscType::String(server_ip),
+                OscType::Int(i32::from(server_port)),
+            ],
+        );
+
+        let bytes: Vec<u8> = encode(&packet).unwrap();
+
+        let addr = format!("127.0.0.1:{}", serialosc_port).parse().unwrap();
+        let (mut socket, _) = socket.send_dgram(bytes, &addr).wait().unwrap();
+        // loop until we find the device list message. It can be that some other messages are
+        // received in the meantime, for example, tilt messages, or keypresses. Ignore them
+        // here. If no message have been received for 100ms, consider we have all the messages and
+        // carry on.
+        loop {
+            let fut = socket.recv_dgram(vec![0u8; 1024]).
+                select2(Delay::new(Instant::now() + Duration::from_millis(100)));
+            let task = tokio::runtime::current_thread::block_on_all(fut);
+            socket = match task {
+                Ok(Either::A(((s, data, _, _), _))) => {
+                    socket = s;
+                    let packet = decode(&data).unwrap();
+
+                    match packet {
+                        OscPacket::Message(message) =>
+                            if message.addr == "/serialosc/device" {
+                                if let Some(args) = &message.args {
+                                    if let [OscType::String(ref name), OscType::String(ref device_type), OscType::Int(port)] =
+                                        args.as_slice()
+                                        {
+                                            devices.push(MonomeDevice::new(name, device_type, *port));
+                                        }
+                                } else {
+                                    break
+                                }
+                            }
+                        OscPacket::Bundle(_bundle) => {
+                          eprintln!("Unexpected bundle received during setup");
+                        }
+                    };
+
+                    socket
+                }
+                Ok(Either::B(_)) => {
+                    // timeout
+                    break
+                }
+                Err(e) => {
+                    panic!("{:?}", e);
+                }
+            };
+        };
+
+        Ok(devices)
+    }
+    /// Enumerate all monome devices on the standard port on which serialosc runs (12002).
+    ///
+    /// If successful, this returns a list of MonomeDevice, which contain basic informations about
+    /// the device: type, serial number, port allocated by serialosc.
+    ///
+    /// # Arguments
+    ///
+    /// * `serialosc_port`: the port on which serialosc is running
+    ///
+    /// # Example
+    ///
+    /// Enumerate and display all monome device on port 1234:
+    ///
+    /// ```no_run
+    ///     use monome::Monome;
+    ///     let enumeration = Monome::enumerate_devices();
+    ///     match enumeration {
+    ///         Ok(devices) => {
+    ///             for device in &devices {
+    ///                println!("{}", device);
+    ///             }
+    ///         }
+    ///         Err(e) => {
+    ///             eprintln!("Error: {}", e);
+    ///         }
+    ///      }
+    /// ```
+    pub fn enumerate_devices() -> Result<Vec<MonomeDevice>, String> {
+        Monome::enumerate_devices_with_port(SERIALOSC_PORT)
+    }
     /// Sets up the "first" monome device, with a particular prefix. When multiple devices are
     /// plugged in, it's unclear which one is activated, however this is rare.
     ///
@@ -571,14 +625,44 @@ impl Monome {
     where
         S: Into<String>,
     {
-        let devices = Monome::list_devices_with_port(serialosc_port)?;
+        let devices = Monome::enumerate_devices_with_port(serialosc_port)?;
         if devices.is_empty() {
             return Err("No devices detected".to_string());
         }
-        Monome::from_device(prefix.into(), &devices[0])
+        Monome::from_device(&devices[0], prefix.into())
     }
-
-    pub fn from_device<S>(prefix: S, device: &MonomeDevice) -> Result<Monome, String>
+    /// Get a monome instance on which to call commands, from a `MonomeDevice`.
+    ///
+    /// # Arguments
+    ///
+    /// * `device`: a `MonomeDevice` acquired through `enumerate_devices`.
+    /// * `prefix`: the prefix to use for this device and this application
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use monome::Monome;
+    /// let enumeration = Monome::enumerate_devices();
+    /// match enumeration {
+    ///     Ok(devices) => {
+    ///         for device in &devices {
+    ///             println!("{}", device);
+    ///             match Monome::from_device(device, "prefix") {
+    ///                 Ok(m) => {
+    ///                     println!("Monome setup:\n{}", m);
+    ///                 }
+    ///                 Err(e) => {
+    ///                     println!("Error setting up {} ({})", device, e);
+    ///                 }
+    ///             }
+    ///         }
+    ///     }
+    ///     Err(e) => {
+    ///         eprintln!("Error: {}", e);
+    ///     }
+    /// }
+    /// ```
+    pub fn from_device<S>(device: &MonomeDevice, prefix: S) -> Result<Monome, String>
         where S: Into<String>
     {
         let prefix = prefix.into();
