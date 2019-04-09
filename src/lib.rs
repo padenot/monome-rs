@@ -436,9 +436,10 @@ impl Monome {
             port += 1;
         }
     }
-    fn setup(
-        prefix: String,
+    fn setup<S>(
+        prefix: S,
         device: &MonomeDevice) -> Result<(MonomeInfo, UdpSocket, String, String, i32), String>
+        where S: Into<String>
         {
         let (name, device_type, port) = (device.name.to_string(), device.device_type.to_string(), device.port);
 
@@ -465,7 +466,7 @@ impl Monome {
             .map(|(s, _)| s)
             .unwrap();
 
-        let packet = build_osc_message("/sys/prefix", vec![OscType::String((*prefix).to_string().clone())]);
+        let packet = build_osc_message("/sys/prefix", vec![OscType::String(prefix.into())]);
         let bytes: Vec<u8> = encode(&packet).unwrap();
         let socket = socket
             .send_dgram(bytes, &addr)
@@ -571,11 +572,12 @@ impl Monome {
         Monome::from_device(prefix.into(), &devices[0])
     }
 
-    pub fn from_device(prefix: String, device: &MonomeDevice) -> Result<Monome, String>
+    pub fn from_device<S>(prefix: S, device: &MonomeDevice) -> Result<Monome, String>
+        where S: Into<String>
     {
-
+        let prefix = prefix.into();
         let (info, socket, name, device_type, device_port) =
-            Monome::setup(prefix.clone(), device)?;
+            Monome::setup(&*prefix, device)?;
 
         let (sender, receiver) = futures::sync::mpsc::channel(16);
         let (tx, rx) = channel();
@@ -584,7 +586,6 @@ impl Monome {
         thread::spawn(move || {
             tokio::run(t.map_err(|e| error!("server error = {:?}", e)));
         });
-
 
         Ok(Monome {
             tx: sender,
