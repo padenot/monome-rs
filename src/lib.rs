@@ -111,11 +111,9 @@ impl MonomeInfo {
     }
 }
 
-/// `Transport` implements the network input and output to and from serialosc, as well as the setup
-/// of the device.
+/// `Transport` implements the network input and output to and from serialosc.
 struct Transport {
-    /// The port for this device. This is the to the first free port starting at
-    /// 10000.
+    /// The port for this device. This is the first free port starting at 10000.
     device_port: i32,
     /// This is the socket with with we send and receive to and from the device.
     socket: UdpSocket,
