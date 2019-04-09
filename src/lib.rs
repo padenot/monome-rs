@@ -1349,6 +1349,6 @@ mod tests {
         }
 
         // use another port in case serialosc is running on the local machine
-        let m = Monome::new_with_port("/plop".to_string(), SERIALOSC_PORT + 1).unwrap();
+        let _m = Monome::new_with_port("/plop".to_string(), SERIALOSC_PORT + 1).unwrap();
     }
 }
