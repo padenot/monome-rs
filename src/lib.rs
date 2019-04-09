@@ -340,6 +340,12 @@ pub struct MonomeDevice {
     port: i32
 }
 
+impl fmt::Display for MonomeDevice {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}: {} ({})", self.name, self.device_type, self.port)
+    }
+}
+
 impl MonomeDevice {
     fn new(name: &str, device_type: &str, port: i32) -> MonomeDevice {
         MonomeDevice {
@@ -1088,8 +1094,8 @@ impl fmt::Debug for Monome {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "Monome {}\ntype: {}\nport: {}\nhost: {}\n\
-             id: {}\nprefix: {}\nrotation: {}\nsize: {}:{}",
+            "Monome {}\n\ttype: {}\n\tport: {}\n\thost: {}\n\t\
+             id: {}\n\tprefix: {}\n\trotation: {}\n\tsize: {}:{}",
             self.name,
             self.device_type,
             self.port,
@@ -1100,6 +1106,12 @@ impl fmt::Debug for Monome {
             self.size.0,
             self.size.1
         )
+    }
+}
+
+impl fmt::Display for Monome {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
     }
 }
 
