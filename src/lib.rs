@@ -171,7 +171,7 @@ impl Future for Transport {
         }
 
         loop {
-            let mut buf = vec![0; 1000];
+            let mut buf = vec![0; 1024];
             match self.socket.poll_recv(&mut buf) {
                 Ok(fut) => match fut {
                     Async::Ready(_ready) => match self.tx.send(buf) {
