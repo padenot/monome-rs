@@ -26,6 +26,13 @@ use rosc::{OscMessage, OscPacket, OscType};
 /// The default port at which serialosc is running.
 pub const SERIALOSC_PORT: i32 = 12002;
 
+/// Port from which this library will start searching for free port when needed.
+const START_PORT: i32 = 10_000;
+
+/// After this number of milliseconds without receiving a device info message from seriaolc, this
+/// library considers all the devices to have been received.
+const DEVICE_ENUMERATION_TIMEOUT_MS: u64 = 100;
+
 /// From a x and y position, and a stride, returns the offset at which the element is in an array.
 fn toidx(x: i32, y: i32, width: i32) -> usize {
     (y * width + x) as usize
@@ -356,8 +363,7 @@ impl MonomeDevice {
 
 impl Monome {
     fn new_bound_socket() -> UdpSocket {
-        // find a free port
-        let mut port = 10000;
+        let mut port = START_PORT;
         loop {
             let server_addr = format!("127.0.0.1:{}", port).parse().unwrap();
             let bind_result = UdpSocket::bind(&server_addr);
@@ -499,7 +505,7 @@ impl Monome {
         loop {
             let fut = socket
                 .recv_dgram(vec![0u8; 1024])
-                .select2(Delay::new(Instant::now() + Duration::from_millis(100)));
+                .select2(Delay::new(Instant::now() + Duration::from_millis(DEVICE_ENUMERATION_TIMEOUT_MS)));
             let task = tokio::runtime::current_thread::block_on_all(fut);
             socket = match task {
                 Ok(Either::A(((s, data, _, _), _))) => {
