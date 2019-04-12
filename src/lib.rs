@@ -362,23 +362,6 @@ impl MonomeDevice {
 }
 
 impl Monome {
-    fn new_bound_socket() -> UdpSocket {
-        let mut port = START_PORT;
-        loop {
-            let server_addr = format!("127.0.0.1:{}", port).parse().unwrap();
-            let bind_result = UdpSocket::bind(&server_addr);
-            match bind_result {
-                Ok(socket) => break socket,
-                Err(e) => {
-                    error!("bind error: {}", e.to_string());
-                    if port > 65536 {
-                        panic!("Could not bind socket: port exhausted");
-                    }
-                }
-            }
-            port += 1;
-        }
-    }
     fn setup<S>(
         prefix: S,
         device: &MonomeDevice,
@@ -396,7 +379,7 @@ impl Monome {
         let add = device_address.parse();
         let addr: SocketAddr = add.unwrap();
 
-        let socket = Monome::new_bound_socket();
+        let socket = new_bound_socket();
         let server_port = socket.local_addr().unwrap().port();
         let packet = build_osc_message("/sys/port", vec![OscType::Int(i32::from(server_port))]);
         let bytes: Vec<u8> = encode(&packet).unwrap();
@@ -481,7 +464,7 @@ impl Monome {
     ///     }
     /// ```
     pub fn enumerate_devices_with_port(serialosc_port: i32) -> Result<Vec<MonomeDevice>, String> {
-        let socket = Monome::new_bound_socket();
+        let socket = new_bound_socket();
         let mut devices = Vec::<MonomeDevice>::new();
         let server_port = socket.local_addr().unwrap().port();
         let server_ip = socket.local_addr().unwrap().ip().to_string();
