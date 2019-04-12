@@ -68,11 +68,10 @@ fn new_bound_socket() -> UdpSocket {
 #[derive(Debug)]
 pub enum DeviceChangeEvent {
     Added(String),
-    Removed(String)
+    Removed(String),
 }
 
-pub struct DeviceChangeNotifier {
-}
+pub struct DeviceChangeNotifier {}
 
 impl DeviceChangeNotifier {
     pub fn new_with_port(serialosc_port: i32, callback: fn(DeviceChangeEvent)) -> Self {
@@ -81,7 +80,13 @@ impl DeviceChangeNotifier {
         thread::spawn(move || {
             let server_port = socket.local_addr().unwrap().port();
             let addr = format!("127.0.0.1:{}", serialosc_port).parse().unwrap();
-            let packet = build_osc_message("/serialosc/notify", vec![OscType::String("127.0.0.1".to_string()), OscType::Int(i32::from(server_port))]);
+            let packet = build_osc_message(
+                "/serialosc/notify",
+                vec![
+                    OscType::String("127.0.0.1".to_string()),
+                    OscType::Int(i32::from(server_port)),
+                ],
+            );
             let mut bytes: Vec<u8>;
             // True if we've received a add or remove message from serialosc recently, and we need
             // to tell it to notify this program in the future.
@@ -130,11 +135,11 @@ impl DeviceChangeNotifier {
             }
         });
 
-        Self { }
+        Self {}
     }
-  pub fn new(callback: fn(DeviceChangeEvent)) -> Self {
-      DeviceChangeNotifier::new_with_port(SERIALOSC_PORT, callback)
-  }
+    pub fn new(callback: fn(DeviceChangeEvent)) -> Self {
+        DeviceChangeNotifier::new_with_port(SERIALOSC_PORT, callback)
+    }
 }
 
 #[derive(Debug)]
@@ -576,9 +581,9 @@ impl Monome {
         // here. If no message have been received for 100ms, consider we have all the messages and
         // carry on.
         loop {
-            let fut = socket
-                .recv_dgram(vec![0u8; 1024])
-                .select2(Delay::new(Instant::now() + Duration::from_millis(DEVICE_ENUMERATION_TIMEOUT_MS)));
+            let fut = socket.recv_dgram(vec![0u8; 1024]).select2(Delay::new(
+                Instant::now() + Duration::from_millis(DEVICE_ENUMERATION_TIMEOUT_MS),
+            ));
             let task = tokio::runtime::current_thread::block_on_all(fut);
             socket = match task {
                 Ok(Either::A(((s, data, _, _), _))) => {

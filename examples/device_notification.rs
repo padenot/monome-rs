@@ -12,7 +12,8 @@ fn main() {
         println!("{:?}", event);
     });
     let mut answer = String::new();
-        io::stdin().read_line(&mut answer)
-            .ok()
-            .expect("Failed to read line");
+    io::stdin()
+        .read_line(&mut answer)
+        .ok()
+        .expect("Failed to read line");
 }
