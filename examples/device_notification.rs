@@ -3,13 +3,21 @@ extern crate monome;
 
 use std::io;
 
-use monome::DeviceChangeNotifier;
+use monome::Monome;
+use monome::DeviceChangeEvent;
 
 fn main() {
     env_logger::init();
 
-    DeviceChangeNotifier::new(|event| {
-        println!("{:?}", event);
+    Monome::register_device_change_callback(|event| {
+        match event {
+            DeviceChangeEvent::Added(id) => {
+                println!("Device {} added", id);
+            }
+            DeviceChangeEvent::Removed(id) => {
+                println!("Device {} removed", id);
+            }
+        }
     });
     let mut answer = String::new();
     io::stdin()

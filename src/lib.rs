@@ -71,77 +71,6 @@ pub enum DeviceChangeEvent {
     Removed(String),
 }
 
-pub struct DeviceChangeNotifier {}
-
-impl DeviceChangeNotifier {
-    pub fn new_with_port(serialosc_port: i32, callback: fn(DeviceChangeEvent)) -> Self {
-        let mut socket = new_bound_socket();
-
-        thread::spawn(move || {
-            let server_port = socket.local_addr().unwrap().port();
-            let addr = format!("127.0.0.1:{}", serialosc_port).parse().unwrap();
-            let packet = build_osc_message(
-                "/serialosc/notify",
-                vec![
-                    OscType::String("127.0.0.1".to_string()),
-                    OscType::Int(i32::from(server_port)),
-                ],
-            );
-            let mut bytes: Vec<u8>;
-            // True if we've received a add or remove message from serialosc recently, and we need
-            // to tell it to notify this program in the future.
-            // This is necessary, because other messages can be received on this socket, notably the
-            // undocumented /sys/connect and /sys/disconnect messages (without any arguments).
-            let mut need_notify_msg = true;
-            loop {
-                bytes = encode(&packet).unwrap();
-                if need_notify_msg {
-                    socket = socket
-                        .send_dgram(bytes, &addr)
-                        .wait()
-                        .map(|(s, _)| s)
-                        .unwrap();
-                    need_notify_msg = false;
-                }
-
-                socket = socket.recv_dgram(vec![0u8; 1024]).and_then(|(socket, data, _, _)| {
-                    match decode(&data).unwrap() {
-                        OscPacket::Message(message) => {
-                            if let Some(ref args) = message.args {
-                                if message.addr.starts_with("/serialosc/add") {
-                                    need_notify_msg = true;
-                                    if let OscType::String(ref id) = args[0] {
-                                        callback(DeviceChangeEvent::Added(id.to_string()));
-                                    }
-                                } else if message.addr.starts_with("/serialosc/remove") {
-                                    if let OscType::String(ref id) = args[0] {
-                                        need_notify_msg = true;
-                                        callback(DeviceChangeEvent::Removed(id.to_string()));
-                                    }
-                                } else {
-                                    debug!("⇦ Unexpected message receive on device change event socket {:?}", message);
-                                }
-                            }
-                        }
-                        _ => {
-                            debug!("⇦ Could not decode {:?}", data);
-                        }
-                    }
-                    Ok(socket)
-                })
-                .wait()
-                    .map(|socket| socket)
-                    .unwrap();
-            }
-        });
-
-        Self {}
-    }
-    pub fn new(callback: fn(DeviceChangeEvent)) -> Self {
-        DeviceChangeNotifier::new_with_port(SERIALOSC_PORT, callback)
-    }
-}
-
 #[derive(Debug)]
 struct MonomeInfo {
     port: Option<i32>,
@@ -457,6 +386,117 @@ impl MonomeDevice {
 }
 
 impl Monome {
+    /// Register for device added/removed notifications, on a non-standard serialosc port
+    ///
+    /// # Arguments
+    ///
+    /// * `serialosc_port`: the port on which serialosc is running
+    /// - `callback`: a function that is called whenever a device is added or removed.
+    ///
+    /// # Example
+    ///
+    /// Print a message, on a machine where serialosc runs on port 1234.
+    ///
+    /// ```no_run
+    /// use monome::Monome;
+    /// use monome::DeviceChangeEvent;
+    /// Monome::register_device_change_callback_with_port(1234, |event| {
+    ///     match event {
+    ///         DeviceChangeEvent::Added(id) => {
+    ///             println!("Device {} added", id);
+    ///         }
+    ///         DeviceChangeEvent::Removed(id) => {
+    ///             println!("Device {} removed", id);
+    ///         }
+    ///     }
+    /// });
+    /// ```
+    pub fn register_device_change_callback_with_port(serialosc_port: i32, callback: fn(DeviceChangeEvent)) {
+        let mut socket = new_bound_socket();
+
+        thread::spawn(move || {
+            let server_port = socket.local_addr().unwrap().port();
+            let addr = format!("127.0.0.1:{}", serialosc_port).parse().unwrap();
+            let packet = build_osc_message(
+                "/serialosc/notify",
+                vec![
+                    OscType::String("127.0.0.1".to_string()),
+                    OscType::Int(i32::from(server_port)),
+                ],
+            );
+            let mut bytes: Vec<u8>;
+            // True if we've received a add or remove message from serialosc recently, and we need
+            // to tell it to notify this program in the future.
+            // This is necessary, because other messages can be received on this socket, notably the
+            // undocumented /sys/connect and /sys/disconnect messages (without any arguments).
+            let mut need_notify_msg = true;
+            loop {
+                bytes = encode(&packet).unwrap();
+                if need_notify_msg {
+                    socket = socket
+                        .send_dgram(bytes, &addr)
+                        .wait()
+                        .map(|(s, _)| s)
+                        .unwrap();
+                    need_notify_msg = false;
+                }
+
+                socket = socket.recv_dgram(vec![0u8; 1024]).and_then(|(socket, data, _, _)| {
+                    match decode(&data).unwrap() {
+                        OscPacket::Message(message) => {
+                            if let Some(ref args) = message.args {
+                                if message.addr.starts_with("/serialosc/add") {
+                                    need_notify_msg = true;
+                                    if let OscType::String(ref id) = args[0] {
+                                        callback(DeviceChangeEvent::Added(id.to_string()));
+                                    }
+                                } else if message.addr.starts_with("/serialosc/remove") {
+                                    if let OscType::String(ref id) = args[0] {
+                                        need_notify_msg = true;
+                                        callback(DeviceChangeEvent::Removed(id.to_string()));
+                                    }
+                                } else {
+                                    debug!("⇦ Unexpected message receive on device change event socket {:?}", message);
+                                }
+                            }
+                        }
+                        _ => {
+                            debug!("⇦ Could not decode {:?}", data);
+                        }
+                    }
+                    Ok(socket)
+                })
+                .wait()
+                    .map(|socket| socket)
+                    .unwrap();
+            }
+        });
+    }
+    /// Register for device added/removed notifications, on the default serialosc port
+    ///
+    /// # Arguments
+    ///
+    /// - `callback`: a function that is called whenever a device is added or removed.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use monome::Monome;
+    /// use monome::DeviceChangeEvent;
+    /// Monome::register_device_change_callback(|event| {
+    ///     match event {
+    ///         DeviceChangeEvent::Added(id) => {
+    ///             println!("Device {} added", id);
+    ///         }
+    ///         DeviceChangeEvent::Removed(id) => {
+    ///             println!("Device {} removed", id);
+    ///         }
+    ///     }
+    /// });
+    /// ```
+    pub fn register_device_change_callback(callback: fn(DeviceChangeEvent)) {
+        Monome::register_device_change_callback_with_port(SERIALOSC_PORT, callback)
+    }
     fn setup<S>(
         prefix: S,
         device: &MonomeDevice,
