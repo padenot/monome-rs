@@ -57,7 +57,7 @@ fn main() {
                     }
                     i += 1;
                 }
-                None => {
+                _ => {
                     break;
                 }
             }

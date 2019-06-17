@@ -230,7 +230,7 @@ pub struct Monome {
     /// The name of this device
     name: String,
     /// The type of this device
-    device_type: String,
+    device_type: MonomeDeviceType,
     /// The port at which this device is running at
     port: i32,
     /// The host for this device (usually localhost)
@@ -270,7 +270,7 @@ pub enum MonomeEvent {
         /// Whether the key has been pressed (`Down`), or released (`Up`).
         direction: KeyDirection,
     },
-    /// An updated about the tilt of this device
+    /// A update about the tilt of this device
     Tilt {
         /// Which sensor sent this tilt update
         n: i32,
@@ -281,6 +281,19 @@ pub enum MonomeEvent {
         /// The yaw of this device
         z: i32,
     },
+    /// An encoder delta information
+    EncoderDelta {
+        /// Which encoder is sending the event
+        n: usize,
+        /// The delta of this movement on this encoder
+        delta: i32
+    },
+    EncoderKey {
+        /// Which encoder is sending the event
+        n: usize,
+        /// Whether the encoder key has been pressed (`Down`), or released (`Up`).
+        direction: KeyDirection
+    }
 }
 
 /// Converts an to a Monome method argument to a OSC address fragment and suitble OscType,
@@ -358,13 +371,46 @@ impl<'a> IntoAddrAndArgs<'a, Vec<OscType>> for &'a [bool; 64] {
     }
 }
 
+#[derive(PartialEq, Clone)]
+pub enum MonomeDeviceType {
+    Grid,
+    Arc,
+    Unknown
+}
+
+impl From<&str> for MonomeDeviceType {
+    fn from(string: &str) -> MonomeDeviceType {
+        if string.contains("arc") {
+            MonomeDeviceType::Arc
+        } else if string.contains("grid") {
+            MonomeDeviceType::Grid
+        } else {
+            MonomeDeviceType::Unknown
+        }
+    }
+}
+
+impl fmt::Display for MonomeDeviceType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", if *self == MonomeDeviceType::Grid { "grid"} else { "arc"} )
+    }
+}
+
+impl fmt::Debug for MonomeDeviceType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+
+
 #[derive(Debug)]
 /// A struct with basic informations about a Monome device, available without having set it up
 pub struct MonomeDevice {
     /// Name of the device with serial number
     name: String,
     /// Device type
-    device_type: String,
+    device_type: MonomeDeviceType,
     /// Port at which this device is available
     port: i32,
 }
@@ -379,7 +425,7 @@ impl MonomeDevice {
     fn new(name: &str, device_type: &str, port: i32) -> MonomeDevice {
         MonomeDevice {
             name: name.to_string(),
-            device_type: device_type.to_string(),
+            device_type: device_type.into(),
             port,
         }
     }
@@ -500,13 +546,13 @@ impl Monome {
     fn setup<S>(
         prefix: S,
         device: &MonomeDevice,
-    ) -> Result<(MonomeInfo, UdpSocket, String, String, i32), String>
+    ) -> Result<(MonomeInfo, UdpSocket, String, MonomeDeviceType, i32), String>
     where
         S: Into<String>,
     {
         let (name, device_type, port) = (
             device.name.to_string(),
-            device.device_type.to_string(),
+            device.device_type.clone().into(),
             device.port,
         );
 
@@ -809,7 +855,7 @@ impl Monome {
         Ok(Monome {
             tx: sender,
             rx,
-            name,
+            name: name.to_string(),
             device_type,
             host: info.host.unwrap(),
             id: info.id.unwrap(),
@@ -848,6 +894,10 @@ impl Monome {
     where
         A: IntoAddrAndArgs<'a, OscType>,
     {
+        if self.device_type != MonomeDeviceType::Grid {
+            error!("Called grid method on something that is not an grid.");
+            return;
+        }
         let (frag, arg) = arg.as_addr_frag_and_args();
         self.send(
             &format!("/grid/led/{}set", frag).to_string(),
@@ -876,6 +926,10 @@ impl Monome {
     where
         A: IntoAddrAndArgs<'a, OscType>,
     {
+        if self.device_type != MonomeDeviceType::Grid {
+            error!("Called grid method on something that is not an grid.");
+            return;
+        }
         let (frag, arg) = arg.as_addr_frag_and_args();
         self.send(&format!("/grid/led/{}all", frag).to_string(), vec![arg]);
     }
@@ -901,6 +955,10 @@ impl Monome {
     /// monome.set_all(&grid);
     /// ```
     pub fn set_all(&mut self, leds: &[bool]) {
+        if self.device_type != MonomeDeviceType::Grid {
+            error!("Called grid method on something that is not an grid.");
+            return;
+        }
         let width_in_quad = self.size.0 / 8;
         let height_in_quad = self.size.1 / 8;
         let width = self.size.0;
@@ -948,6 +1006,10 @@ impl Monome {
     /// m.set_all_intensity(&grid);
     /// ```
     pub fn set_all_intensity(&mut self, leds: &[u8]) {
+        if self.device_type != MonomeDeviceType::Grid {
+            error!("Called grid method on something that is not an grid.");
+            return;
+        }
         let width_in_quad = self.size.0 / 8;
         let height_in_quad = self.size.1 / 8;
         let width = self.size.0;
@@ -998,6 +1060,10 @@ impl Monome {
     where
         A: IntoAddrAndArgs<'a, Vec<OscType>> + Sized,
     {
+        if self.device_type != MonomeDeviceType::Grid {
+            error!("Called grid method on something that is not an grid.");
+            return;
+        }
         let (frag, mut arg) = masks.as_addr_frag_and_args();
 
         let mut args = Vec::with_capacity(2 + arg.len());
@@ -1036,6 +1102,10 @@ impl Monome {
     where
         A: IntoAddrAndArgs<'a, Vec<OscType>>,
     {
+        if self.device_type != MonomeDeviceType::Grid {
+            error!("Called grid method on something that is not an grid.");
+            return;
+        }
         let (frag, arg) = leds.as_addr_frag_and_args();
 
         let mut args = Vec::with_capacity((2 + arg.len()) as usize);
@@ -1075,6 +1145,10 @@ impl Monome {
     where
         A: IntoAddrAndArgs<'a, Vec<OscType>>,
     {
+        if self.device_type != MonomeDeviceType::Grid {
+            error!("Called grid method on something that is not an grid.");
+            return;
+        }
         let (frag, mut arg) = leds.as_addr_frag_and_args();
 
         let mut args = Vec::with_capacity((2 + arg.len()) as usize);
@@ -1084,6 +1158,135 @@ impl Monome {
         args.append(&mut arg);
 
         self.send(&format!("/grid/led/{}col", frag), args);
+    }
+
+    /// Set a single led, with intensity, on an Arc.
+    ///
+    /// # Arguments
+    ///
+    /// - `n` - the encoder to set a led on, 0-indexed.
+    /// - `index` - which led to set. 0 is the top led, and goes clockwise. This is modulo 64, so
+    /// passing in 65 is the second led from the top, going clockwise.
+    /// - `intensity` - the intensity of the led 0 being off, 15 full brightness.
+    ///
+    /// # Example
+    ///
+    /// On an arc, make a circular gradient on the first encoder:
+    ///
+    /// ```no_run
+    /// use monome::Monome;
+    /// let mut monome = Monome::new("/prefix").unwrap();
+    /// for i in 0..64 {
+    ///   monome.set(0, i, i / 4);
+    /// }
+    /// ```
+    pub fn ring_set(&mut self, n: usize, index: u32, intensity: u32) {
+        if self.device_type != MonomeDeviceType::Arc {
+            error!("Called arc method on something that is not an arc.");
+            return;
+        }
+        let mut args = Vec::with_capacity(3);
+        args.push(OscType::Int(n as i32));
+        args.push(OscType::Int(index as i32));
+        args.push(OscType::Int(intensity as i32));
+
+        self.send("/ring/set", args);
+    }
+
+    /// Set all the led on an encoder to a particular intensity.
+    ///
+    /// # Arguments
+    ///
+    /// - `n` - the encoder to set the leds on, 0-indexed.
+    /// - `intensity` - the intensity of the leds: 0 being off, 15 full brightness.
+    ///
+    /// # Example
+    ///
+    /// On an arc, make a gradient accross all four encoders:
+    ///
+    /// ```no_run
+    /// use monome::Monome;
+    /// let mut monome = Monome::new("/prefix").unwrap();
+    /// for i in 0..4 {
+    ///   monome.ring_all(i, (i * 4) as u32);
+    /// }
+    /// ```
+    pub fn ring_all(&mut self, n: usize, intensity: u32) {
+        if self.device_type != MonomeDeviceType::Arc {
+            error!("Called arc method on something that is not an arc.");
+            return;
+        }
+        let mut args = Vec::with_capacity(2);
+        args.push(OscType::Int(n as i32));
+        args.push(OscType::Int(intensity as i32));
+
+        self.send("/ring/all", args);
+    }
+
+    /// Set a range of led to a particular intensity.
+    ///
+    /// # Arguments
+    ///
+    /// - `n` - the encoder to set the leds on, 0-indexed.
+    /// - `start_offset` - the encoder to start setting the led from, 0-indexed, modulo 64.
+    /// - `end_offset` - the encoder to end setting the led at 0-indexed, inclusive, modulo 64.
+    /// - `intensity` - the intensity of the leds: 0 being off, 15 full brightness.
+    ///
+    /// # Example
+    ///
+    /// On an arc, lit up halves:
+    ///
+    /// ```no_run
+    /// use monome::Monome;
+    /// let mut monome = Monome::new("/prefix").unwrap();
+    /// monome.ring_range(0, 0, 32, 15);
+    /// monome.ring_range(1, 32, 64, 15);
+    /// monome.ring_range(2, 16, 48, 15);
+    /// monome.ring_range(3, 48, 16, 15);
+    /// ```
+    pub fn ring_range(&mut self, n: usize, start_offset: usize, end_offset: usize, intensity: u32) {
+        if self.device_type != MonomeDeviceType::Arc {
+            error!("Called arc method on something that is not an arc.");
+            return;
+        }
+        let mut args = Vec::with_capacity(4);
+        args.push(OscType::Int(n as i32));
+        args.push(OscType::Int(start_offset as i32));
+        args.push(OscType::Int(end_offset as i32));
+        args.push(OscType::Int(intensity as i32));
+
+        self.send("/ring/range", args);
+    }
+
+    /// Set all leds on an encoder to specific values.
+    ///
+    /// # Arguments
+    ///
+    /// - `n` - the encoder to set the leds on, 0-indexed.
+    /// - `values` - an array of 64 values between 0 an 16, one for each led.
+    ///
+    /// # Example
+    ///
+    /// On an arc, make a gradient on an encoder.
+    ///
+    /// ```no_run
+    /// use monome::Monome;
+    /// let mut monome = Monome::new("/prefix").unwrap();
+    /// let mut v: [u8; 64] = [0; 64];
+    ///
+    /// for i in 0..64 {
+    ///     v[i] = (i / 4) as u8;
+    /// }
+    /// monome.ring_map(0, &v);
+    /// ```
+    pub fn ring_map(&mut self, n: usize, values: &[u8; 64]) {
+        let mut args = Vec::with_capacity(65);
+        args.push(OscType::Int(n as i32));
+        for v in values.iter() {
+            args.push(OscType::Int(*v as i32));
+        }
+
+        self.send("/ring/map", args);
     }
 
     /// Enable or disable all tilt sensors (usually, there is only one), which allows receiving the
@@ -1113,7 +1316,7 @@ impl Monome {
     }
 
     /// Get the type for this device (for example `"monome 128"`).
-    pub fn device_type(&self) -> String {
+    pub fn device_type(&self) -> MonomeDeviceType {
         self.device_type.clone()
     }
 
@@ -1181,8 +1384,9 @@ impl Monome {
         }
     }
 
-    /// Receives a MonomeEvent, from a connected monome, which can be a grid key press, or an event
-    /// from the tilt sensor. Only the events from the set `prefix` will be received.
+    /// Receives a MonomeEvent, from a connected monome, which can be a grid key press, an event
+    /// from the tilt sensor, or a delta from an encoder, on an Arc. Only the events from the set
+    /// `prefix` will be received.
     ///
     /// # Example
     ///
@@ -1207,8 +1411,8 @@ impl Monome {
     ///         Some(MonomeEvent::Tilt{n: _n, x, y, z: _z}) => {
     ///           println!("tilt update: pitch: {}, roll {}", x, y);
     ///         }
-    ///         None => {
-    ///             break;
+    ///         _ => {
+    ///           break;
     ///         }
     ///     }
     /// }
@@ -1289,6 +1493,24 @@ impl Monome {
                                 });
                             }
                             error!("Invalid /tilt message received {:?}.", message);
+                        } else if message.addr.starts_with(&format!("{}/enc/delta", self.prefix)) {
+                            if let [OscType::Int(n), OscType::Int(delta)] = args.as_slice() {
+                                info!("Encoder delta {} {}", *n, *delta);
+                                return Some(MonomeEvent::EncoderDelta {
+                                    n: *n as usize,
+                                    delta: *delta
+                                });
+                            }
+                            error!("Invalid /end/delta message received {:?}.", message);
+                        } else if message.addr.starts_with(&format!("{}/enc/key", self.prefix)) {
+                            if let [OscType::Int(n), OscType::Int(direction)] = args.as_slice() {
+                                info!("Encoder key {} {}", *n, *direction);
+                                return Some(MonomeEvent::EncoderKey {
+                                    n: *n as usize,
+                                    direction: if *direction == 1 { KeyDirection::Down } else { KeyDirection::Up }
+                                });
+                            }
+                            error!("Invalid /end/key message received {:?}.", message);
                         } else {
                             error!("not handled: {:?}", message.addr);
                         }
