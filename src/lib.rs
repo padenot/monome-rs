@@ -1,10 +1,3 @@
-#[macro_use]
-extern crate futures;
-extern crate rosc;
-extern crate tokio;
-#[macro_use]
-extern crate log;
-
 use std::fmt;
 use std::io;
 use std::net::SocketAddr;
@@ -22,6 +15,9 @@ use futures::sync::mpsc as future_mpsc;
 use rosc::decoder::decode;
 use rosc::encoder::encode;
 use rosc::{OscMessage, OscPacket, OscType};
+
+use log::*;
+use futures::*;
 
 /// The default port at which serialosc is running.
 pub const SERIALOSC_PORT: i32 = 12002;
@@ -1552,7 +1548,7 @@ impl fmt::Display for Monome {
 
 #[cfg(test)]
 mod tests {
-    use build_osc_message;
+    use crate::build_osc_message;
     use rosc::decoder::decode;
     use rosc::encoder::encode;
     use rosc::{OscPacket, OscType};
@@ -1560,8 +1556,8 @@ mod tests {
     use std::thread;
     use tokio::net::UdpSocket;
     use tokio::prelude::*;
-    use Monome;
-    use SERIALOSC_PORT;
+    use crate::Monome;
+    use crate::SERIALOSC_PORT;
 
     #[test]
     fn setup() {
