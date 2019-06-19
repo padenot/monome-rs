@@ -16,8 +16,8 @@ use rosc::decoder::decode;
 use rosc::encoder::encode;
 use rosc::{OscMessage, OscPacket, OscType};
 
-use log::*;
 use futures::*;
+use log::*;
 
 /// The default port at which serialosc is running.
 pub const SERIALOSC_PORT: i32 = 12002;
@@ -282,14 +282,14 @@ pub enum MonomeEvent {
         /// Which encoder is sending the event
         n: usize,
         /// The delta of this movement on this encoder
-        delta: i32
+        delta: i32,
     },
     EncoderKey {
         /// Which encoder is sending the event
         n: usize,
         /// Whether the encoder key has been pressed (`Down`), or released (`Up`).
-        direction: KeyDirection
-    }
+        direction: KeyDirection,
+    },
 }
 
 /// Converts an to a Monome method argument to a OSC address fragment and suitble OscType,
@@ -371,7 +371,7 @@ impl<'a> IntoAddrAndArgs<'a, Vec<OscType>> for &'a [bool; 64] {
 pub enum MonomeDeviceType {
     Grid,
     Arc,
-    Unknown
+    Unknown,
 }
 
 impl From<&str> for MonomeDeviceType {
@@ -388,7 +388,15 @@ impl From<&str> for MonomeDeviceType {
 
 impl fmt::Display for MonomeDeviceType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", if *self == MonomeDeviceType::Grid { "grid"} else { "arc"} )
+        write!(
+            f,
+            "{}",
+            if *self == MonomeDeviceType::Grid {
+                "grid"
+            } else {
+                "arc"
+            }
+        )
     }
 }
 
@@ -397,8 +405,6 @@ impl fmt::Debug for MonomeDeviceType {
         write!(f, "{}", self)
     }
 }
-
-
 
 #[derive(Debug)]
 /// A struct with basic informations about a Monome device, available without having set it up
@@ -453,7 +459,10 @@ impl Monome {
     ///     }
     /// });
     /// ```
-    pub fn register_device_change_callback_with_port(serialosc_port: i32, callback: fn(DeviceChangeEvent)) {
+    pub fn register_device_change_callback_with_port(
+        serialosc_port: i32,
+        callback: fn(DeviceChangeEvent),
+    ) {
         let mut socket = new_bound_socket();
 
         thread::spawn(move || {
@@ -1489,21 +1498,31 @@ impl Monome {
                                 });
                             }
                             error!("Invalid /tilt message received {:?}.", message);
-                        } else if message.addr.starts_with(&format!("{}/enc/delta", self.prefix)) {
+                        } else if message
+                            .addr
+                            .starts_with(&format!("{}/enc/delta", self.prefix))
+                        {
                             if let [OscType::Int(n), OscType::Int(delta)] = args.as_slice() {
                                 info!("Encoder delta {} {}", *n, *delta);
                                 return Some(MonomeEvent::EncoderDelta {
                                     n: *n as usize,
-                                    delta: *delta
+                                    delta: *delta,
                                 });
                             }
                             error!("Invalid /end/delta message received {:?}.", message);
-                        } else if message.addr.starts_with(&format!("{}/enc/key", self.prefix)) {
+                        } else if message
+                            .addr
+                            .starts_with(&format!("{}/enc/key", self.prefix))
+                        {
                             if let [OscType::Int(n), OscType::Int(direction)] = args.as_slice() {
                                 info!("Encoder key {} {}", *n, *direction);
                                 return Some(MonomeEvent::EncoderKey {
                                     n: *n as usize,
-                                    direction: if *direction == 1 { KeyDirection::Down } else { KeyDirection::Up }
+                                    direction: if *direction == 1 {
+                                        KeyDirection::Down
+                                    } else {
+                                        KeyDirection::Up
+                                    },
                                 });
                             }
                             error!("Invalid /end/key message received {:?}.", message);
@@ -1549,6 +1568,8 @@ impl fmt::Display for Monome {
 #[cfg(test)]
 mod tests {
     use crate::build_osc_message;
+    use crate::Monome;
+    use crate::SERIALOSC_PORT;
     use rosc::decoder::decode;
     use rosc::encoder::encode;
     use rosc::{OscPacket, OscType};
@@ -1556,8 +1577,6 @@ mod tests {
     use std::thread;
     use tokio::net::UdpSocket;
     use tokio::prelude::*;
-    use crate::Monome;
-    use crate::SERIALOSC_PORT;
 
     #[test]
     fn setup() {

@@ -24,7 +24,7 @@ fn main() {
             monome.ring_set(i, led[i] as u32, 15);
         }
         match e {
-            Some(MonomeEvent::EncoderDelta {n, delta} ) => {
+            Some(MonomeEvent::EncoderDelta { n, delta }) => {
                 let n = n as usize;
                 monome.ring_set(n, led[n] as u32, 0);
                 led[n] = led[n] + (delta as f32 / 4.);
@@ -33,10 +33,8 @@ fn main() {
                 }
                 monome.ring_set(n, led[n] as u32, 15);
             }
-            _ => {
-            }
+            _ => {}
         }
-
 
         let refresh = time::Duration::from_millis(10);
         thread::sleep(refresh);
