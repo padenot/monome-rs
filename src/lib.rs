@@ -1,9 +1,9 @@
 use std::fmt;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
+use std::sync::Arc;
 
 use futures::future::Either;
 use tokio::net::UdpSocket;
@@ -15,6 +15,8 @@ use futures::sync::mpsc as future_mpsc;
 use rosc::decoder::decode;
 use rosc::encoder::encode;
 use rosc::{OscMessage, OscPacket, OscType};
+
+use crossbeam::queue::ArrayQueue;
 
 use futures::*;
 use log::*;
@@ -145,7 +147,7 @@ struct Transport {
     /// This is the socket with with we send and receive to and from the device.
     socket: UdpSocket,
     /// This is the channel we use to forward the received OSC messages to the client object.
-    tx: Sender<Vec<u8>>,
+    tx: Arc<crossbeam::queue::ArrayQueue<Vec<u8>>>,
     /// This is where Transport receives the OSC messages to send.
     rx: future_mpsc::Receiver<Vec<u8>>,
 }
@@ -154,7 +156,7 @@ impl Transport {
     pub fn new(
         device_port: i32,
         socket: UdpSocket,
-        tx: Sender<Vec<u8>>,
+        tx: Arc<crossbeam::queue::ArrayQueue<Vec<u8>>>,
         rx: future_mpsc::Receiver<Vec<u8>>,
     ) -> Transport {
         return Transport {
@@ -201,7 +203,7 @@ impl Future for Transport {
             let mut buf = vec![0; 1024];
             match self.socket.poll_recv(&mut buf) {
                 Ok(fut) => match fut {
-                    Async::Ready(_ready) => match self.tx.send(buf) {
+                    Async::Ready(_ready) => match self.tx.push(buf) {
                         Ok(()) => {
                             continue;
                         }
@@ -240,7 +242,7 @@ pub struct Monome {
     /// THe x and y size for this device.
     size: (i32, i32),
     /// A channel that allows receiving serialized OSC messages from a device.
-    rx: Receiver<Vec<u8>>,
+    q: Arc<crossbeam::queue::ArrayQueue<Vec<u8>>>,
     /// A channel that allows sending serialized OSC messages to a device.
     tx: future_mpsc::Sender<Vec<u8>>,
 }
@@ -850,8 +852,9 @@ impl Monome {
         let (info, socket, name, device_type, device_port) = Monome::setup(&*prefix, device)?;
 
         let (sender, receiver) = futures::sync::mpsc::channel(16);
-        let (tx, rx) = channel();
-        let t = Transport::new(device_port, socket, tx, receiver);
+        let q = Arc::new(ArrayQueue::new(32));
+        let q2 = q.clone();
+        let t = Transport::new(device_port, socket, q, receiver);
 
         thread::spawn(move || {
             tokio::run(t.map_err(|e| error!("server error = {:?}", e)));
@@ -859,7 +862,7 @@ impl Monome {
 
         Ok(Monome {
             tx: sender,
-            rx,
+            q: q2,
             name: name.to_string(),
             device_type,
             host: info.host.unwrap(),
@@ -1423,13 +1426,9 @@ impl Monome {
     /// }
     /// ```
     pub fn poll(&mut self) -> Option<MonomeEvent> {
-        match self.rx.try_recv() {
+        match self.q.pop() {
             Ok(buf) => self.parse(&buf),
-            Err(std::sync::mpsc::TryRecvError::Empty) => {
-                return None;
-            }
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                error!("error transport disconnected");
+            Err(crossbeam::queue::PopError) => {
                 return None;
             }
         }
