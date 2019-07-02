@@ -54,7 +54,7 @@ fn new_bound_socket() -> UdpSocket {
             Ok(socket) => break socket,
             Err(e) => {
                 error!("bind error: {}", e.to_string());
-                if port > 65536 {
+                if port > 65535 {
                     panic!("Could not bind socket: port exhausted");
                 }
             }
