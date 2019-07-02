@@ -10,7 +10,7 @@ use tokio::net::UdpSocket;
 use tokio::prelude::*;
 use tokio::timer::Delay;
 
-use futures::sync::mpsc as future_mpsc;
+use futures::sync::mpsc::{Sender, Receiver};
 
 use rosc::decoder::decode;
 use rosc::encoder::encode;
@@ -147,17 +147,17 @@ struct Transport {
     /// This is the socket with with we send and receive to and from the device.
     socket: UdpSocket,
     /// This is the channel we use to forward the received OSC messages to the client object.
-    tx: Arc<crossbeam::queue::ArrayQueue<Vec<u8>>>,
+    tx: Arc<ArrayQueue<Vec<u8>>>,
     /// This is where Transport receives the OSC messages to send.
-    rx: future_mpsc::Receiver<Vec<u8>>,
+    rx: Receiver<Vec<u8>>,
 }
 
 impl Transport {
     pub fn new(
         device_port: i32,
         socket: UdpSocket,
-        tx: Arc<crossbeam::queue::ArrayQueue<Vec<u8>>>,
-        rx: future_mpsc::Receiver<Vec<u8>>,
+        tx: Arc<ArrayQueue<Vec<u8>>>,
+        rx: Receiver<Vec<u8>>,
     ) -> Transport {
         return Transport {
             device_port,
@@ -242,9 +242,9 @@ pub struct Monome {
     /// THe x and y size for this device.
     size: (i32, i32),
     /// A channel that allows receiving serialized OSC messages from a device.
-    q: Arc<crossbeam::queue::ArrayQueue<Vec<u8>>>,
+    q: Arc<ArrayQueue<Vec<u8>>>,
     /// A channel that allows sending serialized OSC messages to a device.
-    tx: future_mpsc::Sender<Vec<u8>>,
+    tx: Sender<Vec<u8>>,
 }
 
 /// Whether a key press is going up or down
