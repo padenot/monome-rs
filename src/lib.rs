@@ -81,14 +81,14 @@ struct MonomeInfo {
 
 impl MonomeInfo {
     fn new() -> MonomeInfo {
-        return MonomeInfo {
+        MonomeInfo {
             port: None,
             host: None,
             prefix: None,
             id: None,
             size: None,
             rotation: None,
-        };
+        }
     }
     fn complete(&self) -> bool {
         self.port.is_some()
@@ -159,12 +159,12 @@ impl Transport {
         tx: Arc<ArrayQueue<Vec<u8>>>,
         rx: Receiver<Vec<u8>>,
     ) -> Transport {
-        return Transport {
+        Transport {
             device_port,
             socket,
             tx,
             rx,
-        };
+        }
     }
 }
 
@@ -183,7 +183,7 @@ impl Future for Transport {
                             // This happens when shutting down usually
                             if b.is_some() {
                                 let _amt =
-                                    try_ready!(self.socket.poll_send_to(&mut b.unwrap(), &addr));
+                                    try_ready!(self.socket.poll_send_to(&b.unwrap(), &addr));
                             } else {
                                 break;
                             }
@@ -318,7 +318,7 @@ impl<'a> IntoAddrAndArgs<'a, Vec<OscType>> for &'a [u8; 64] {
     fn as_addr_frag_and_args(&self) -> (String, Vec<OscType>) {
         // TODO: error handling both valid: either 64 or more intensity values, or 8 masks
         let mut osctype_vec = Vec::with_capacity(64);
-        for item in self.iter().map(|i| OscType::Int(*i as i32)) {
+        for item in self.iter().map(|i| OscType::Int(i32::from(*i))) {
             osctype_vec.push(item);
         }
         ("level/".to_string(), osctype_vec)
@@ -329,7 +329,7 @@ impl<'a> IntoAddrAndArgs<'a, Vec<OscType>> for u8 {
     fn as_addr_frag_and_args(&self) -> (String, Vec<OscType>) {
         // TODO: error handling both valid: either 64 or more intensity values, or 8 masks
         let mut osctype_vec = Vec::with_capacity(1);
-        osctype_vec.push(OscType::Int(*self as i32));
+        osctype_vec.push(OscType::Int(i32::from(*self)));
         ("".to_string(), osctype_vec)
     }
 }
@@ -338,7 +338,7 @@ impl<'a> IntoAddrAndArgs<'a, Vec<OscType>> for &'a [u8; 8] {
     fn as_addr_frag_and_args(&self) -> (String, Vec<OscType>) {
         // TODO: error handling both valid: either 64 or more intensity values, or 8 masks
         let mut osctype_vec = Vec::with_capacity(8);
-        for item in self.iter().map(|i| OscType::Int(*i as i32)) {
+        for item in self.iter().map(|i| OscType::Int(i32::from(*i))) {
             osctype_vec.push(item);
         }
         ("".to_string(), osctype_vec)
@@ -362,7 +362,7 @@ impl<'a> IntoAddrAndArgs<'a, Vec<OscType>> for &'a [bool; 64] {
             masks[i as usize] = mask;
         }
         let mut osctype_vec = Vec::with_capacity(8);
-        for item in masks.iter().map(|i| OscType::Int(*i as i32)) {
+        for item in masks.iter().map(|i| OscType::Int(i32::from(*i))) {
             osctype_vec.push(item);
         }
         ("".to_string(), osctype_vec)
@@ -559,7 +559,7 @@ impl Monome {
     {
         let (name, device_type, port) = (
             device.name.to_string(),
-            device.device_type.clone().into(),
+            device.device_type.clone(),
             device.port,
         );
 
@@ -1291,7 +1291,7 @@ impl Monome {
         let mut args = Vec::with_capacity(65);
         args.push(OscType::Int(n as i32));
         for v in values.iter() {
-            args.push(OscType::Int(*v as i32));
+            args.push(OscType::Int(i32::from(*v)));
         }
 
         self.send("/ring/map", args);
@@ -1429,12 +1429,12 @@ impl Monome {
         match self.q.pop() {
             Ok(buf) => self.parse(&buf),
             Err(crossbeam::queue::PopError) => {
-                return None;
+                None
             }
         }
     }
 
-    fn parse(&self, buf: &Vec<u8>) -> Option<MonomeEvent> {
+    fn parse(&self, buf: &[u8]) -> Option<MonomeEvent> {
         let packet = decode(buf).unwrap();
         debug!("⇦ {:?}", packet);
 
@@ -1461,6 +1461,7 @@ impl Monome {
                         };
                     }
                 } else if message.addr.starts_with("/sys") {
+                    // This should only be received during the setup phase
                     debug!("/sys received: {:?}", message);
                 } else if message.addr.starts_with(&self.prefix) {
                     if let Some(args) = &message.args {
@@ -1530,7 +1531,7 @@ impl Monome {
                         }
                     }
                 }
-                return None;
+                None
             }
             OscPacket::Bundle(_bundle) => {
                 panic!("wtf.");
@@ -1556,7 +1557,7 @@ impl fmt::Debug for Monome {
         if self.device_type == MonomeDeviceType::Grid {
             return write!(f, "\tsize: {}:{}", self.size.0, self.size.1);
         }
-        return rv;
+        rv
     }
 }
 
