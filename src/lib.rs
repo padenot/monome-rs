@@ -256,8 +256,8 @@ pub enum KeyDirection {
     Down,
 }
 
-/// An event received from a monome grid. This can be either a key press or release, or a tilt
-/// event.
+/// An event received from a monome device. This can be either a key press or release, a tilt
+/// event, an encoder rotation event, or an encoder press or release.
 pub enum MonomeEvent {
     /// A key press or release
     GridKey {
