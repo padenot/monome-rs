@@ -1541,20 +1541,22 @@ impl Monome {
 
 impl fmt::Debug for Monome {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
+        let rv = write!(
             f,
             "Monome {}\n\ttype: {}\n\tport: {}\n\thost: {}\n\t\
-             id: {}\n\tprefix: {}\n\trotation: {}\n\tsize: {}:{}",
+            id: {}\n\tprefix: {}\n\trotation: {}",
             self.name,
             self.device_type,
             self.port,
             self.host,
             self.id,
             self.prefix,
-            self.rotation,
-            self.size.0,
-            self.size.1
-        )
+            self.rotation
+        );
+        if self.device_type == MonomeDeviceType::Grid {
+            return write!(f, "\tsize: {}:{}", self.size.0, self.size.1);
+        }
+        return rv;
     }
 }
 
