@@ -1,3 +1,7 @@
+#![deny(missing_docs)]
+
+//! Use monome devices (Grid or Arc) in rust.
+
 use std::fmt;
 use std::io;
 use std::net::SocketAddr;
@@ -63,9 +67,12 @@ fn new_bound_socket() -> UdpSocket {
     }
 }
 
+/// An enum filled when a device has been added or removed, along with its name.
 #[derive(Debug)]
 pub enum DeviceChangeEvent {
+    /// A device has been added on the host and recognized by serialosc, and is now available for use.
     Added(String),
+    /// A device has been removed on the host and is now unavailable for use.
     Removed(String),
 }
 
@@ -268,35 +275,38 @@ pub enum MonomeEvent {
         /// Whether the key has been pressed (`Down`), or released (`Up`).
         direction: KeyDirection,
     },
-    /// A update about the tilt of this device
+    /// A update about the tilt of this device.
     Tilt {
-        /// Which sensor sent this tilt update
+        /// Which sensor sent this tilt update.
         n: i32,
-        /// The pitch of this device
+        /// The pitch of this device.
         x: i32,
-        /// The roll of this device
+        /// The roll of this device.
         y: i32,
-        /// The yaw of this device
+        /// The yaw of this device.
         z: i32,
     },
     /// An encoder delta information
     EncoderDelta {
-        /// Which encoder is sending the event
+        /// Which encoder is sending the event.
         n: usize,
-        /// The delta of this movement on this encoder
+        /// The delta of this movement on this encoder.
         delta: i32,
     },
+    /// A key press on an encoder (only available on some older devices).
     EncoderKey {
-        /// Which encoder is sending the event
+        /// Which encoder is sending the event.
         n: usize,
         /// Whether the encoder key has been pressed (`Down`), or released (`Up`).
         direction: KeyDirection,
     },
 }
 
-/// Converts an to a Monome method argument to a OSC address fragment and suitble OscType,
+/// Converts an to a Monome method argument to a OSC address fragment and suitable OscType,
 /// performing an eventual conversion.
 pub trait IntoAddrAndArgs<'a, B> {
+    /// Converts an to a Monome method argument to a OSC address fragment and suitable OscType,
+    /// performing an eventual conversion.
     fn as_addr_frag_and_args(&self) -> (String, B);
 }
 
@@ -369,10 +379,14 @@ impl<'a> IntoAddrAndArgs<'a, Vec<OscType>> for &'a [bool; 64] {
     }
 }
 
+/// A type of device, either Grid (of various size), Arc (with 2 or 4 encoders), or unknown.
 #[derive(PartialEq, Clone)]
 pub enum MonomeDeviceType {
+    /// The type for a monome grid.
     Grid,
+    /// The type for a monome arc.
     Arc,
+    /// Unknown device, please file an issue.
     Unknown,
 }
 
