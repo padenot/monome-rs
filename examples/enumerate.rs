@@ -9,11 +9,14 @@ fn main() {
     let enumeration = Monome::enumerate_devices();
     match enumeration {
         Ok(devices) => {
+            println!("Found {} devices.", devices.len());
+            let mut idx = 0;
             for device in &devices {
-                println!("{}", device);
+                println!("Device {}: {}. Setting it up:", idx, device);
+                idx+=1;
                 match Monome::from_device(device, "prefix") {
                     Ok(m) => {
-                        println!("Monome setup:\n{}", m);
+                        println!("Monome {} setup OK:\n{}", device, m);
                     }
                     Err(e) => {
                         println!("Error setting up {} ({})", device, e);

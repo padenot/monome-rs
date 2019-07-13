@@ -33,7 +33,7 @@ const START_PORT: i32 = 10_000;
 
 /// After this number of milliseconds without receiving a device info message from seriaolc, this
 /// library considers all the devices to have been received.
-const DEVICE_ENUMERATION_TIMEOUT_MS: u64 = 100;
+const DEVICE_ENUMERATION_TIMEOUT_MS: u64 = 500;
 
 /// From a x and y position, and a stride, returns the offset at which the element is in an array.
 fn toidx(x: i32, y: i32, width: i32) -> usize {
@@ -57,7 +57,7 @@ fn new_bound_socket() -> UdpSocket {
         match bind_result {
             Ok(socket) => break socket,
             Err(e) => {
-                error!("bind error: {}", e.to_string());
+                warn!("bind error: {}", e.to_string());
                 if port > 65535 {
                     panic!("Could not bind socket: port exhausted");
                 }
@@ -394,10 +394,8 @@ impl From<&str> for MonomeDeviceType {
     fn from(string: &str) -> MonomeDeviceType {
         if string.contains("arc") {
             MonomeDeviceType::Arc
-        } else if string.contains("grid") {
-            MonomeDeviceType::Grid
         } else {
-            MonomeDeviceType::Unknown
+            MonomeDeviceType::Grid
         }
     }
 }
@@ -685,7 +683,7 @@ impl Monome {
         let (mut socket, _) = socket.send_dgram(bytes, &addr).wait().unwrap();
         // loop until we find the device list message. It can be that some other messages are
         // received in the meantime, for example, tilt messages, or keypresses. Ignore them
-        // here. If no message have been received for 100ms, consider we have all the messages and
+        // here. If no message have been received for 500ms, consider we have all the messages and
         // carry on.
         loop {
             let fut = socket.recv_dgram(vec![0u8; 1024]).select2(Delay::new(
@@ -1569,7 +1567,7 @@ impl fmt::Debug for Monome {
             self.rotation
         );
         if self.device_type == MonomeDeviceType::Grid {
-            return write!(f, "\tsize: {}:{}", self.size.0, self.size.1);
+            return write!(f, "\n\tsize: {}:{}", self.size.0, self.size.1);
         }
         rv
     }
