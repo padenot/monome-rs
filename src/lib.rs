@@ -445,6 +445,18 @@ impl MonomeDevice {
             port,
         }
     }
+    /// Return the device type.
+    pub fn device_type(&self) -> MonomeDeviceType {
+        return self.device_type.clone();
+    }
+    /// Return the device name.
+    pub fn name(&self) -> String {
+        return self.name.clone();
+    }
+    /// Return the port on which this device is.
+    pub fn port(&self) -> i32 {
+        return self.port;
+    }
 }
 
 impl Monome {
