@@ -4,7 +4,7 @@
 
 use std::fmt;
 use std::io;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, IpAddr, Ipv4Addr};
 use std::thread;
 use std::time::{Duration, Instant};
 use std::sync::Arc;
@@ -26,10 +26,10 @@ use futures::*;
 use log::*;
 
 /// The default port at which serialosc is running.
-pub const SERIALOSC_PORT: i32 = 12002;
+pub const SERIALOSC_PORT: u16 = 12002;
 
 /// Port from which this library will start searching for free port when needed.
-const START_PORT: i32 = 10_000;
+const START_PORT: u16 = 10_000;
 
 /// After this number of milliseconds without receiving a device info message from seriaolc, this
 /// library considers all the devices to have been received.
@@ -58,7 +58,7 @@ fn new_bound_socket() -> UdpSocket {
             Ok(socket) => break socket,
             Err(e) => {
                 warn!("bind error: {}", e.to_string());
-                if port > 65535 {
+                if port == 0 {
                     panic!("Could not bind socket: port exhausted");
                 }
             }
@@ -149,8 +149,8 @@ impl MonomeInfo {
 
 /// `Transport` implements the network input and output to and from serialosc.
 struct Transport {
-    /// The port for this device. This is the first free port starting at 10000.
-    device_port: i32,
+    /// The address at which serialoscd is reachable.
+    addr: SocketAddr,
     /// This is the socket with with we send and receive to and from the device.
     socket: UdpSocket,
     /// This is the channel we use to forward the received OSC messages to the client object.
@@ -161,13 +161,15 @@ struct Transport {
 
 impl Transport {
     pub fn new(
-        device_port: i32,
+        device_addr: IpAddr,
+        device_port: u16,
         socket: UdpSocket,
         tx: Arc<ArrayQueue<Vec<u8>>>,
         rx: Receiver<Vec<u8>>,
     ) -> Transport {
+        let addr = SocketAddr::new(device_addr, device_port);
         Transport {
-            device_port,
+            addr,
             socket,
             tx,
             rx,
@@ -185,12 +187,10 @@ impl Future for Transport {
                 Ok(fut) => {
                     match fut {
                         Async::Ready(b) => {
-                            let device_address = format!("127.0.0.1:{}", self.device_port);
-                            let addr: SocketAddr = device_address.parse().unwrap();
                             // This happens when shutting down usually
                             if b.is_some() {
                                 let _amt =
-                                    try_ready!(self.socket.poll_send_to(&b.unwrap(), &addr));
+                                    try_ready!(self.socket.poll_send_to(&b.unwrap(), &self.addr));
                             } else {
                                 break;
                             }
@@ -237,7 +237,7 @@ pub struct Monome {
     /// The type of this device
     device_type: MonomeDeviceType,
     /// The port at which this device is running at
-    port: i32,
+    port: u16,
     /// The host for this device (usually localhost)
     host: String,
     /// The ID of this device
@@ -427,8 +427,10 @@ pub struct MonomeDevice {
     name: String,
     /// Device type
     device_type: MonomeDeviceType,
+    /// Host of the serialosc this device is on.
+    addr: IpAddr,
     /// Port at which this device is available
-    port: i32,
+    port: u16,
 }
 
 impl fmt::Display for MonomeDevice {
@@ -438,10 +440,11 @@ impl fmt::Display for MonomeDevice {
 }
 
 impl MonomeDevice {
-    fn new(name: &str, device_type: &str, port: i32) -> MonomeDevice {
+    fn new(name: &str, device_type: &str, addr: IpAddr, port: u16) -> MonomeDevice {
         MonomeDevice {
             name: name.to_string(),
             device_type: device_type.into(),
+            addr,
             port,
         }
     }
@@ -453,8 +456,12 @@ impl MonomeDevice {
     pub fn name(&self) -> String {
         return self.name.clone();
     }
+    /// The host on which this device is attached.
+    pub fn host(&self) -> IpAddr {
+        return self.addr;
+    }
     /// Return the port on which this device is.
-    pub fn port(&self) -> i32 {
+    pub fn port(&self) -> u16 {
         return self.port;
     }
 }
@@ -469,12 +476,13 @@ impl Monome {
     ///
     /// # Example
     ///
-    /// Print a message, on a machine where serialosc runs on port 1234.
+    /// Print a message, on a machine where serialosc runs on the machine at 192.168.1.12, on port
+    /// 1234.
     ///
     /// ```no_run
     /// use monome::Monome;
     /// use monome::DeviceChangeEvent;
-    /// Monome::register_device_change_callback_with_port(1234, |event| {
+    /// Monome::register_device_change_callback_with_host_and_port("192.168.1.12".parse().unwrap(), 1234, |event| {
     ///     match event {
     ///         DeviceChangeEvent::Added(id) => {
     ///             println!("Device {} added", id);
@@ -485,15 +493,16 @@ impl Monome {
     ///     }
     /// });
     /// ```
-    pub fn register_device_change_callback_with_port(
-        serialosc_port: i32,
+    pub fn register_device_change_callback_with_host_and_port(
+        serialosc_addr: IpAddr,
+        serialosc_port: u16,
         callback: fn(DeviceChangeEvent),
     ) {
         let mut socket = new_bound_socket();
 
         thread::spawn(move || {
             let server_port = socket.local_addr().unwrap().port();
-            let addr = format!("127.0.0.1:{}", serialosc_port).parse().unwrap();
+            let addr = SocketAddr::new(serialosc_addr, serialosc_port);
             let packet = build_osc_message(
                 "/serialosc/notify",
                 vec![
@@ -549,7 +558,8 @@ impl Monome {
             }
         });
     }
-    /// Register for device added/removed notifications, on the default serialosc port
+    /// Register for device added/removed notifications, on the default serialosc port, when it runs
+    /// on localhost.
     ///
     /// # Arguments
     ///
@@ -572,12 +582,66 @@ impl Monome {
     /// });
     /// ```
     pub fn register_device_change_callback(callback: fn(DeviceChangeEvent)) {
-        Monome::register_device_change_callback_with_port(SERIALOSC_PORT, callback)
+        Monome::register_device_change_callback_with_host_and_port(std::net::IpAddr::V4(<Ipv4Addr>::LOCALHOST), SERIALOSC_PORT, callback)
+    }
+    /// Register for device added/removed notifications, on the default serialosc port, passing in
+    /// the address at which serialoscd is reachable.
+    ///
+    /// # Arguments
+    ///
+    /// - `addr`: the address on which serialoscd is reachable.
+    /// - `callback`: a function that is called whenever a device is added or removed.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use monome::Monome;
+    /// use monome::DeviceChangeEvent;
+    /// Monome::register_device_change_callback_with_host("192.168.1.12".parse().unwrap(), |event| {
+    ///     match event {
+    ///         DeviceChangeEvent::Added(id) => {
+    ///             println!("Device {} added", id);
+    ///         }
+    ///         DeviceChangeEvent::Removed(id) => {
+    ///             println!("Device {} removed", id);
+    ///         }
+    ///     }
+    /// });
+    /// ```
+    pub fn register_device_change_callback_with_host(addr: IpAddr, callback: fn(DeviceChangeEvent)) {
+        Monome::register_device_change_callback_with_host_and_port(addr, SERIALOSC_PORT, callback)
+    }
+    /// Register for device added/removed notifications, on the specific serialosc port, when
+    /// serialoscd is running on localhost.
+    ///
+    /// # Arguments
+    ///
+    /// - `port`: the port at which serialoscd is.
+    /// - `callback`: a function that is called whenever a device is added or removed.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use monome::Monome;
+    /// use monome::DeviceChangeEvent;
+    /// Monome::register_device_change_callback_with_port(12012, |event| {
+    ///     match event {
+    ///         DeviceChangeEvent::Added(id) => {
+    ///             println!("Device {} added", id);
+    ///         }
+    ///         DeviceChangeEvent::Removed(id) => {
+    ///             println!("Device {} removed", id);
+    ///         }
+    ///     }
+    /// });
+    /// ```
+    pub fn register_device_change_callback_with_port(port: u16, callback: fn(DeviceChangeEvent)) {
+        Monome::register_device_change_callback_with_host_and_port(std::net::IpAddr::V4(<Ipv4Addr>::LOCALHOST), port, callback)
     }
     fn setup<S>(
         prefix: S,
         device: &MonomeDevice,
-    ) -> Result<(MonomeInfo, UdpSocket, String, MonomeDeviceType, i32), String>
+    ) -> Result<(MonomeInfo, UdpSocket, String, MonomeDeviceType, u16), String>
     where
         S: Into<String>,
     {
@@ -587,9 +651,7 @@ impl Monome {
             device.port,
         );
 
-        let device_address = format!("127.0.0.1:{}", port);
-        let add = device_address.parse();
-        let addr: SocketAddr = add.unwrap();
+        let addr = SocketAddr::new(device.host(), device.port());
 
         let socket = new_bound_socket();
         let server_port = socket.local_addr().unwrap().port();
@@ -648,13 +710,14 @@ impl Monome {
 
         Ok((info, socket, name, device_type, port))
     }
-    /// Enumerate all monome devices on a non-standard serialosc port.
+    /// Enumerate all monome devices on a non-standard serialosc port, on a specific host.
     ///
     /// If successful, this returns a list of MonomeDevice, which contain basic informations about
     /// the device: type, serial number, port allocated by serialosc.
     ///
     /// # Arguments
     ///
+    /// * `serialosc_addr: the address of the host on which serialosc runs
     /// * `serialosc_port`: the port on which serialosc is running
     ///
     /// # Example
@@ -663,7 +726,7 @@ impl Monome {
     ///
     /// ```no_run
     ///     use monome::Monome;
-    ///     let enumeration = Monome::enumerate_devices_with_port(1234);
+    ///     let enumeration = Monome::enumerate_devices_with_host_and_port("192.168.1.12".parse().unwrap(), 1234);
     ///     match enumeration {
     ///         Ok(devices) => {
     ///             for device in &devices {
@@ -675,7 +738,7 @@ impl Monome {
     ///         }
     ///     }
     /// ```
-    pub fn enumerate_devices_with_port(serialosc_port: i32) -> Result<Vec<MonomeDevice>, String> {
+    pub fn enumerate_devices_with_host_and_port(serialosc_addr: IpAddr, serialosc_port: u16) -> Result<Vec<MonomeDevice>, String> {
         let socket = new_bound_socket();
         let mut devices = Vec::<MonomeDevice>::new();
         let server_port = socket.local_addr().unwrap().port();
@@ -691,7 +754,7 @@ impl Monome {
 
         let bytes: Vec<u8> = encode(&packet).unwrap();
 
-        let addr = format!("127.0.0.1:{}", serialosc_port).parse().unwrap();
+        let addr = SocketAddr::new(serialosc_addr, serialosc_port);
         let (mut socket, _) = socket.send_dgram(bytes, &addr).wait().unwrap();
         // loop until we find the device list message. It can be that some other messages are
         // received in the meantime, for example, tilt messages, or keypresses. Ignore them
@@ -714,7 +777,7 @@ impl Monome {
                                     if let [OscType::String(ref name), OscType::String(ref device_type), OscType::Int(port)] =
                                         args.as_slice()
                                     {
-                                        devices.push(MonomeDevice::new(name, device_type, *port));
+                                        devices.push(MonomeDevice::new(name, device_type, serialosc_addr, (*port) as u16));
                                     }
                                 } else {
                                     break;
@@ -769,6 +832,67 @@ impl Monome {
     /// ```
     pub fn enumerate_devices() -> Result<Vec<MonomeDevice>, String> {
         Monome::enumerate_devices_with_port(SERIALOSC_PORT)
+    }
+    /// Enumerate all monome devices on localhost, on a specific port.
+    ///
+    /// If successful, this returns a list of MonomeDevice, which contain basic informations about
+    /// the device: type, serial number, port allocated by serialosc.
+    ///
+    /// # Arguments
+    ///
+    /// * `port`: the port serialoscd is bound to.
+    ///
+    /// # Example
+    ///
+    /// Enumerate and display all monome device running on default port at a specific address.
+    ///
+    /// ```no_run
+    ///     use monome::Monome;
+    ///     let enumeration = Monome::enumerate_devices_with_port(12012);
+    ///     match enumeration {
+    ///         Ok(devices) => {
+    ///             for device in &devices {
+    ///                println!("{}", device);
+    ///             }
+    ///         }
+    ///         Err(e) => {
+    ///             eprintln!("Error: {}", e);
+    ///         }
+    ///      }
+    /// ```
+    pub fn enumerate_devices_with_port(port: u16) -> Result<Vec<MonomeDevice>, String> {
+        Monome::enumerate_devices_with_host_and_port(std::net::IpAddr::V4(<Ipv4Addr>::LOCALHOST), port)
+    }
+    /// Enumerate all monome devices on the standard port on which serialosc runs (12002), on a
+    /// specific address.
+    ///
+    /// If successful, this returns a list of MonomeDevice, which contain basic informations about
+    /// the device: type, serial number, port allocated by serialosc.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr: the address at which serialosc is reachable
+    ///
+    /// # Example
+    ///
+    /// Enumerate and display all monome device running on default port at a specific addr.
+    ///
+    /// ```no_run
+    ///     use monome::Monome;
+    ///     let enumeration = Monome::enumerate_devices_on_host("192.168.1.12".parse().unwrap());
+    ///     match enumeration {
+    ///         Ok(devices) => {
+    ///             for device in &devices {
+    ///                println!("{}", device);
+    ///             }
+    ///         }
+    ///         Err(e) => {
+    ///             eprintln!("Error: {}", e);
+    ///         }
+    ///      }
+    /// ```
+    pub fn enumerate_devices_on_host(host: IpAddr) -> Result<Vec<MonomeDevice>, String> {
+        Monome::enumerate_devices_with_host_and_port(host, SERIALOSC_PORT)
     }
     /// Sets up the "first" monome device, with a particular prefix. When multiple devices are
     /// plugged in, it's unclear which one is activated, however this is rare.
@@ -827,7 +951,7 @@ impl Monome {
     ///   }
     /// }
     /// ```
-    pub fn new_with_port<S>(prefix: S, serialosc_port: i32) -> Result<Monome, String>
+    pub fn new_with_port<S>(prefix: S, serialosc_port: u16) -> Result<Monome, String>
     where
         S: Into<String>,
     {
@@ -878,7 +1002,7 @@ impl Monome {
         let (sender, receiver) = futures::sync::mpsc::channel(16);
         let q = Arc::new(ArrayQueue::new(32));
         let q2 = q.clone();
-        let t = Transport::new(device_port, socket, q, receiver);
+        let t = Transport::new(device.host(), device_port, socket, q, receiver);
 
         thread::spawn(move || {
             tokio::run(t.map_err(|e| error!("server error = {:?}", e)));
@@ -1353,7 +1477,7 @@ impl Monome {
     }
 
     /// Get the port for this device.
-    pub fn port(&self) -> i32 {
+    pub fn port(&self) -> u16 {
         self.port
     }
 
