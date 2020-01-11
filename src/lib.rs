@@ -480,8 +480,8 @@ impl Monome {
     /// 1234.
     ///
     /// ```no_run
-    /// use monome::Monome;
-    /// use monome::DeviceChangeEvent;
+    /// # use monome::Monome;
+    /// # use monome::DeviceChangeEvent;
     /// Monome::register_device_change_callback_with_host_and_port("192.168.1.12".parse().unwrap(), 1234, |event| {
     ///     match event {
     ///         DeviceChangeEvent::Added(id) => {
@@ -568,8 +568,8 @@ impl Monome {
     /// # Example
     ///
     /// ```no_run
-    /// use monome::Monome;
-    /// use monome::DeviceChangeEvent;
+    /// # use monome::Monome;
+    /// # use monome::DeviceChangeEvent;
     /// Monome::register_device_change_callback(|event| {
     ///     match event {
     ///         DeviceChangeEvent::Added(id) => {
@@ -595,8 +595,8 @@ impl Monome {
     /// # Example
     ///
     /// ```no_run
-    /// use monome::Monome;
-    /// use monome::DeviceChangeEvent;
+    /// # use monome::Monome;
+    /// # use monome::DeviceChangeEvent;
     /// Monome::register_device_change_callback_with_host("192.168.1.12".parse().unwrap(), |event| {
     ///     match event {
     ///         DeviceChangeEvent::Added(id) => {
@@ -622,8 +622,8 @@ impl Monome {
     /// # Example
     ///
     /// ```no_run
-    /// use monome::Monome;
-    /// use monome::DeviceChangeEvent;
+    /// # use monome::Monome;
+    /// # use monome::DeviceChangeEvent;
     /// Monome::register_device_change_callback_with_port(12012, |event| {
     ///     match event {
     ///         DeviceChangeEvent::Added(id) => {
@@ -725,18 +725,18 @@ impl Monome {
     /// Enumerate and display all monome device on port 1234:
     ///
     /// ```no_run
-    ///     use monome::Monome;
-    ///     let enumeration = Monome::enumerate_devices_with_host_and_port("192.168.1.12".parse().unwrap(), 1234);
-    ///     match enumeration {
-    ///         Ok(devices) => {
-    ///             for device in &devices {
-    ///                println!("{}", device);
-    ///             }
-    ///         }
-    ///         Err(e) => {
-    ///             eprintln!("Error: {}", e);
+    /// # use monome::Monome;
+    /// let enumeration = Monome::enumerate_devices_with_host_and_port("192.168.1.12".parse().unwrap(), 1234);
+    /// match enumeration {
+    ///     Ok(devices) => {
+    ///         for device in &devices {
+    ///            println!("{}", device);
     ///         }
     ///     }
+    ///     Err(e) => {
+    ///         eprintln!("Error: {}", e);
+    ///     }
+    /// }
     /// ```
     pub fn enumerate_devices_with_host_and_port(serialosc_addr: IpAddr, serialosc_port: u16) -> Result<Vec<MonomeDevice>, String> {
         let socket = new_bound_socket();
@@ -817,18 +817,18 @@ impl Monome {
     /// Enumerate and display all monome device on port 1234:
     ///
     /// ```no_run
-    ///     use monome::Monome;
-    ///     let enumeration = Monome::enumerate_devices();
-    ///     match enumeration {
-    ///         Ok(devices) => {
-    ///             for device in &devices {
-    ///                println!("{}", device);
-    ///             }
+    /// # use monome::Monome;
+    /// let enumeration = Monome::enumerate_devices();
+    /// match enumeration {
+    ///     Ok(devices) => {
+    ///         for device in &devices {
+    ///            println!("{}", device);
     ///         }
-    ///         Err(e) => {
-    ///             eprintln!("Error: {}", e);
-    ///         }
-    ///      }
+    ///     }
+    ///     Err(e) => {
+    ///         eprintln!("Error: {}", e);
+    ///     }
+    /// }
     /// ```
     pub fn enumerate_devices() -> Result<Vec<MonomeDevice>, String> {
         Monome::enumerate_devices_with_port(SERIALOSC_PORT)
@@ -847,18 +847,18 @@ impl Monome {
     /// Enumerate and display all monome device running on default port at a specific address.
     ///
     /// ```no_run
-    ///     use monome::Monome;
-    ///     let enumeration = Monome::enumerate_devices_with_port(12012);
-    ///     match enumeration {
-    ///         Ok(devices) => {
-    ///             for device in &devices {
-    ///                println!("{}", device);
-    ///             }
+    /// # use monome::Monome;
+    /// # let enumeration = Monome::enumerate_devices_with_port(12012);
+    /// match enumeration {
+    ///     Ok(devices) => {
+    ///         for device in &devices {
+    ///            println!("{}", device);
     ///         }
-    ///         Err(e) => {
-    ///             eprintln!("Error: {}", e);
-    ///         }
-    ///      }
+    ///     }
+    ///     Err(e) => {
+    ///         eprintln!("Error: {}", e);
+    ///     }
+    /// }
     /// ```
     pub fn enumerate_devices_with_port(port: u16) -> Result<Vec<MonomeDevice>, String> {
         Monome::enumerate_devices_with_host_and_port(std::net::IpAddr::V4(<Ipv4Addr>::LOCALHOST), port)
@@ -878,18 +878,18 @@ impl Monome {
     /// Enumerate and display all monome device running on default port at a specific addr.
     ///
     /// ```no_run
-    ///     use monome::Monome;
-    ///     let enumeration = Monome::enumerate_devices_on_host("192.168.1.12".parse().unwrap());
-    ///     match enumeration {
-    ///         Ok(devices) => {
-    ///             for device in &devices {
-    ///                println!("{}", device);
-    ///             }
+    /// # use monome::Monome;
+    /// let enumeration = Monome::enumerate_devices_on_host("192.168.1.12".parse().unwrap());
+    /// match enumeration {
+    ///     Ok(devices) => {
+    ///         for device in &devices {
+    ///            println!("{}", device);
     ///         }
-    ///         Err(e) => {
-    ///             eprintln!("Error: {}", e);
-    ///         }
-    ///      }
+    ///     }
+    ///     Err(e) => {
+    ///         eprintln!("Error: {}", e);
+    ///     }
+    /// }
     /// ```
     pub fn enumerate_devices_on_host(host: IpAddr) -> Result<Vec<MonomeDevice>, String> {
         Monome::enumerate_devices_with_host_and_port(host, SERIALOSC_PORT)
@@ -906,7 +906,7 @@ impl Monome {
     /// Set up a monome, with a prefix of "/prefix":
     ///
     /// ```no_run
-    /// use monome::Monome;
+    /// # use monome::Monome;
     /// let m = Monome::new("/prefix");
     ///
     /// match m {
@@ -939,7 +939,7 @@ impl Monome {
     /// serialosc can be reached (here, the default of 12002):
     ///
     /// ```no_run
-    /// use monome::Monome;
+    /// # use monome::Monome;
     /// let m = Monome::new_with_port("/prefix", 12002);
     ///
     /// match m {
@@ -971,7 +971,7 @@ impl Monome {
     /// # Example
     ///
     /// ```no_run
-    /// use monome::Monome;
+    /// # use monome::Monome;
     /// let enumeration = Monome::enumerate_devices();
     /// match enumeration {
     ///     Ok(devices) => {
