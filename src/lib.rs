@@ -214,7 +214,7 @@ impl Future for Transport {
                             continue;
                         }
                         Err(e) => {
-                            error!("receive from monome, {}", e);
+                            error!("receive from monome, {:?}", e);
                         }
                     },
                     Async::NotReady => {
@@ -1589,8 +1589,8 @@ impl Monome {
     /// ```
     pub fn poll(&mut self) -> Option<MonomeEvent> {
         match self.q.pop() {
-            Ok(buf) => self.parse(&buf),
-            Err(crossbeam::queue::PopError) => None,
+            Some(buf) => self.parse(&buf),
+            None => None,
         }
     }
 

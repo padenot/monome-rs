@@ -19,7 +19,7 @@ tokio = "0.1"
 futures = "0.1"
 rosc = "0.4"
 log = "0.4"
-crossbeam = "0.7"
+crossbeam = "0.8"
 
 [dev-dependencies]
 env_logger = "0.5"
