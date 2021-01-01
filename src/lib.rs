@@ -450,19 +450,19 @@ impl MonomeDevice {
     }
     /// Return the device type.
     pub fn device_type(&self) -> MonomeDeviceType {
-        return self.device_type.clone();
+        self.device_type.clone()
     }
     /// Return the device name.
     pub fn name(&self) -> String {
-        return self.name.clone();
+        self.name.clone()
     }
     /// The host on which this device is attached.
     pub fn host(&self) -> IpAddr {
-        return self.addr;
+        self.addr
     }
     /// Return the port on which this device is.
     pub fn port(&self) -> u16 {
-        return self.port;
+        self.port
     }
 }
 
@@ -1033,7 +1033,7 @@ impl Monome {
         Ok(Monome {
             tx: sender,
             q: q2,
-            name: name.to_string(),
+            name,
             device_type,
             host: info.host.unwrap(),
             id: info.id.unwrap(),
@@ -1078,7 +1078,7 @@ impl Monome {
         }
         let (frag, arg) = arg.as_addr_frag_and_args();
         self.send(
-            &format!("/grid/led/{}set", frag).to_string(),
+            &format!("/grid/led/{}set", frag),
             vec![OscType::Int(x), OscType::Int(y), arg],
         );
     }
@@ -1109,7 +1109,7 @@ impl Monome {
             return;
         }
         let (frag, arg) = arg.as_addr_frag_and_args();
-        self.send(&format!("/grid/led/{}all", frag).to_string(), vec![arg]);
+        self.send(&format!("/grid/led/{}all", frag), vec![arg]);
     }
 
     /// Set all the leds of a monome in one call.
@@ -1600,6 +1600,100 @@ impl Monome {
         }
     }
 
+    fn parse_serialosc(&self, message: rosc::OscMessage) {
+        if message.addr == "/serialosc/device" {
+            info!("/serialosc/device");
+        } else if message.addr == "/serialosc/add" {
+            if let Some(args) = message.args {
+                if let OscType::String(ref device_name) = args[0] {
+                    info!("device added: {}", device_name);
+                } else {
+                    warn!("unexpected message for prefix {}", message.addr);
+                }
+            } else if message.addr == "/serialosc/remove" {
+                if let Some(args) = message.args {
+                    if let OscType::String(ref device_name) = args[0] {
+                        info!("device removed: {}", device_name);
+                    } else {
+                        warn!("unexpected message for prefix {}", message.addr);
+                    }
+                }
+            };
+        }
+    }
+
+    fn parse_app_message(&self, message: rosc::OscMessage) -> Option<MonomeEvent> {
+        if let Some(args) = &message.args {
+            if message
+                .addr
+                .starts_with(&format!("{}/grid/key", self.prefix))
+            {
+                if let [OscType::Int(x), OscType::Int(y), OscType::Int(v)] =
+                    args.as_slice()
+                {
+                    info!("Key: {}:{} {}", *x, *y, *v);
+                    let direction = if *v == 1 {
+                        KeyDirection::Down
+                    } else {
+                        KeyDirection::Up
+                    };
+                    return Some(MonomeEvent::GridKey {
+                        x: *x,
+                        y: *y,
+                        direction,
+                    });
+                }
+                error!("Invalid /grid/key message received {:?}.", message);
+            } else if message.addr.starts_with(&format!("{}/tilt", self.prefix)) {
+                if let [OscType::Int(n), OscType::Int(x), OscType::Int(y), OscType::Int(z)] =
+                    args.as_slice()
+                {
+                    info!("Tilt {} {},{},{}", *n, *x, *y, *z);
+                    return Some(MonomeEvent::Tilt {
+                        n: *n,
+                        x: *x,
+                        y: *y,
+                        z: *z,
+                    });
+                }
+                error!("Invalid /tilt message received {:?}.", message);
+            } else if message
+                .addr
+                .starts_with(&format!("{}/enc/delta", self.prefix))
+            {
+                if let [OscType::Int(n), OscType::Int(delta)] = args.as_slice() {
+                    info!("Encoder delta {} {}", *n, *delta);
+                    return Some(MonomeEvent::EncoderDelta {
+                        n: *n as usize,
+                        delta: *delta,
+                    });
+                }
+                error!("Invalid /end/delta message received {:?}.", message);
+            } else if message
+                .addr
+                .starts_with(&format!("{}/enc/key", self.prefix))
+            {
+                if let [OscType::Int(n), OscType::Int(direction)] = args.as_slice() {
+                    info!("Encoder key {} {}", *n, *direction);
+                    return Some(MonomeEvent::EncoderKey {
+                        n: *n as usize,
+                        direction: if *direction == 1 {
+                            KeyDirection::Down
+                        } else {
+                            KeyDirection::Up
+                        },
+                    });
+                }
+                error!("Invalid /end/key message received {:?}.", message);
+            } else {
+                error!("not handled: {:?}", message.addr);
+            }
+        } else {
+            error!("bad format");
+        }
+        None
+    }
+
     fn parse(&self, buf: &[u8]) -> Option<MonomeEvent> {
         let packet = decode(buf).unwrap();
         debug!("⇦ {:?}", packet);
@@ -1607,95 +1701,12 @@ impl Monome {
         match packet {
             OscPacket::Message(message) => {
                 if message.addr.starts_with("/serialosc") {
-                    if message.addr == "/serialosc/device" {
-                        info!("/serialosc/device");
-                    } else if message.addr == "/serialosc/add" {
-                        if let Some(args) = message.args {
-                            if let OscType::String(ref device_name) = args[0] {
-                                info!("device added: {}", device_name);
-                            } else {
-                                warn!("unexpected message for prefix {}", message.addr);
-                            }
-                        } else if message.addr == "/serialosc/remove" {
-                            if let Some(args) = message.args {
-                                if let OscType::String(ref device_name) = args[0] {
-                                    info!("device removed: {}", device_name);
-                                } else {
-                                    warn!("unexpected message for prefix {}", message.addr);
-                                }
-                            }
-                        };
-                    }
+                    self.parse_serialosc(message);
                 } else if message.addr.starts_with("/sys") {
                     // This should only be received during the setup phase
                     debug!("/sys received: {:?}", message);
                 } else if message.addr.starts_with(&self.prefix) {
-                    if let Some(args) = &message.args {
-                        if message
-                            .addr
-                            .starts_with(&format!("{}/grid/key", self.prefix))
-                        {
-                            if let [OscType::Int(x), OscType::Int(y), OscType::Int(v)] =
-                                args.as_slice()
-                            {
-                                info!("Key: {}:{} {}", *x, *y, *v);
-                                let direction = if *v == 1 {
-                                    KeyDirection::Down
-                                } else {
-                                    KeyDirection::Up
-                                };
-                                return Some(MonomeEvent::GridKey {
-                                    x: *x,
-                                    y: *y,
-                                    direction,
-                                });
-                            }
-                            error!("Invalid /grid/key message received {:?}.", message);
-                        } else if message.addr.starts_with(&format!("{}/tilt", self.prefix)) {
-                            if let [OscType::Int(n), OscType::Int(x), OscType::Int(y), OscType::Int(z)] =
-                                args.as_slice()
-                            {
-                                info!("Tilt {} {},{},{}", *n, *x, *y, *z);
-                                return Some(MonomeEvent::Tilt {
-                                    n: *n,
-                                    x: *x,
-                                    y: *y,
-                                    z: *z,
-                                });
-                            }
-                            error!("Invalid /tilt message received {:?}.", message);
-                        } else if message
-                            .addr
-                            .starts_with(&format!("{}/enc/delta", self.prefix))
-                        {
-                            if let [OscType::Int(n), OscType::Int(delta)] = args.as_slice() {
-                                info!("Encoder delta {} {}", *n, *delta);
-                                return Some(MonomeEvent::EncoderDelta {
-                                    n: *n as usize,
-                                    delta: *delta,
-                                });
-                            }
-                            error!("Invalid /end/delta message received {:?}.", message);
-                        } else if message
-                            .addr
-                            .starts_with(&format!("{}/enc/key", self.prefix))
-                        {
-                            if let [OscType::Int(n), OscType::Int(direction)] = args.as_slice() {
-                                info!("Encoder key {} {}", *n, *direction);
-                                return Some(MonomeEvent::EncoderKey {
-                                    n: *n as usize,
-                                    direction: if *direction == 1 {
-                                        KeyDirection::Down
-                                    } else {
-                                        KeyDirection::Up
-                                    },
-                                });
-                            }
-                            error!("Invalid /end/key message received {:?}.", message);
-                        } else {
-                            error!("not handled: {:?}", message.addr);
-                        }
-                    }
+                    return self.parse_app_message(message);
                 }
                 None
             }
