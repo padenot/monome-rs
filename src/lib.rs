@@ -44,7 +44,7 @@ fn toidx(x: i32, y: i32, width: i32) -> usize {
 fn build_osc_message(addr: &str, args: Vec<OscType>) -> OscPacket {
     let message = OscMessage {
         addr: addr.to_owned(),
-        args: Some(args),
+        args,
     };
     OscPacket::Message(message)
 }
@@ -109,32 +109,31 @@ impl MonomeInfo {
         match packet {
             OscPacket::Message(message) => {
                 if message.addr.starts_with("/sys") {
-                    if let Some(args) = message.args {
-                        if message.addr.starts_with("/sys/port") {
-                            if let OscType::Int(port) = args[0] {
-                                self.port = Some(port);
-                            }
-                        } else if message.addr.starts_with("/sys/host") {
-                            if let OscType::String(ref host) = args[0] {
-                                self.host = Some(host.to_string());
-                            }
-                        } else if message.addr.starts_with("/sys/id") {
-                            if let OscType::String(ref id) = args[0] {
-                                self.id = Some(id.to_string());
-                            }
-                        } else if message.addr.starts_with("/sys/prefix") {
-                            if let OscType::String(ref prefix) = args[0] {
-                                self.prefix = Some(prefix.to_string());
-                            }
-                        } else if message.addr.starts_with("/sys/rotation") {
-                            if let OscType::Int(rotation) = args[0] {
-                                self.rotation = Some(rotation);
-                            }
-                        } else if message.addr.starts_with("/sys/size") {
-                            if let OscType::Int(x) = args[0] {
-                                if let OscType::Int(y) = args[1] {
-                                    self.size = Some((x, y));
-                                }
+                    let args = message.args;
+                    if message.addr.starts_with("/sys/port") {
+                        if let OscType::Int(port) = args[0] {
+                            self.port = Some(port);
+                        }
+                    } else if message.addr.starts_with("/sys/host") {
+                        if let OscType::String(ref host) = args[0] {
+                            self.host = Some(host.to_string());
+                        }
+                    } else if message.addr.starts_with("/sys/id") {
+                        if let OscType::String(ref id) = args[0] {
+                            self.id = Some(id.to_string());
+                        }
+                    } else if message.addr.starts_with("/sys/prefix") {
+                        if let OscType::String(ref prefix) = args[0] {
+                            self.prefix = Some(prefix.to_string());
+                        }
+                    } else if message.addr.starts_with("/sys/rotation") {
+                        if let OscType::Int(rotation) = args[0] {
+                            self.rotation = Some(rotation);
+                        }
+                    } else if message.addr.starts_with("/sys/size") {
+                        if let OscType::Int(x) = args[0] {
+                            if let OscType::Int(y) = args[1] {
+                                self.size = Some((x, y));
                             }
                         }
                     }
@@ -530,20 +529,18 @@ impl Monome {
                 socket = socket.recv_dgram(vec![0u8; 1024]).and_then(|(socket, data, _, _)| {
                     match decode(&data).unwrap() {
                         OscPacket::Message(message) => {
-                            if let Some(ref args) = message.args {
-                                if message.addr.starts_with("/serialosc/add") {
-                                    need_notify_msg = true;
-                                    if let OscType::String(ref id) = args[0] {
-                                        callback(DeviceChangeEvent::Added(id.to_string()));
-                                    }
-                                } else if message.addr.starts_with("/serialosc/remove") {
-                                    if let OscType::String(ref id) = args[0] {
-                                        need_notify_msg = true;
-                                        callback(DeviceChangeEvent::Removed(id.to_string()));
-                                    }
-                                } else {
-                                    debug!("⇦ Unexpected message receive on device change event socket {:?}", message);
+                            if message.addr.starts_with("/serialosc/add") {
+                                need_notify_msg = true;
+                                if let OscType::String(ref id) = message.args[0] {
+                                    callback(DeviceChangeEvent::Added(id.to_string()));
                                 }
+                            } else if message.addr.starts_with("/serialosc/remove") {
+                                if let OscType::String(ref id) = message.args[0] {
+                                    need_notify_msg = true;
+                                    callback(DeviceChangeEvent::Removed(id.to_string()));
+                                }
+                            } else {
+                                debug!("⇦ Unexpected message receive on device change event socket {:?}", &message);
                             }
                         }
                         _ => {
@@ -787,19 +784,16 @@ impl Monome {
                     match packet {
                         OscPacket::Message(message) => {
                             if message.addr == "/serialosc/device" {
-                                if let Some(args) = &message.args {
-                                    if let [OscType::String(ref name), OscType::String(ref device_type), OscType::Int(port)] =
-                                        args.as_slice()
-                                    {
-                                        devices.push(MonomeDevice::new(
-                                            name,
-                                            device_type,
-                                            serialosc_addr,
-                                            (*port) as u16,
-                                        ));
-                                    }
-                                } else {
-                                    break;
+                                let args = message.args;
+                                if let [OscType::String(ref name), OscType::String(ref device_type), OscType::Int(port)] =
+                                    args.as_slice()
+                                {
+                                    devices.push(MonomeDevice::new(
+                                        name,
+                                        device_type,
+                                        serialosc_addr,
+                                        (*port) as u16,
+                                    ));
                                 }
                             }
                         }
@@ -1547,7 +1541,7 @@ impl Monome {
     fn send_no_prefix(&mut self, addr: &str, args: Vec<OscType>) {
         let message = OscMessage {
             addr: addr.to_owned(),
-            args: Some(args),
+            args,
         };
         let packet = OscPacket::Message(message);
         debug!("⇨ {:?}", packet);
@@ -1604,92 +1598,84 @@ impl Monome {
         if message.addr == "/serialosc/device" {
             info!("/serialosc/device");
         } else if message.addr == "/serialosc/add" {
-            if let Some(args) = message.args {
-                if let OscType::String(ref device_name) = args[0] {
-                    info!("device added: {}", device_name);
-                } else {
-                    warn!("unexpected message for prefix {}", message.addr);
-                }
-            } else if message.addr == "/serialosc/remove" {
-                if let Some(args) = message.args {
-                    if let OscType::String(ref device_name) = args[0] {
-                        info!("device removed: {}", device_name);
-                    } else {
-                        warn!("unexpected message for prefix {}", message.addr);
-                    }
-                }
-            };
-        }
+            let args = message.args;
+            if let OscType::String(ref device_name) = args[0] {
+                info!("device added: {}", device_name);
+            } else {
+                warn!("unexpected message for prefix {}", &message.addr);
+            }
+        } else if message.addr == "/serialosc/remove" {
+            let args = &message.args;
+            if let OscType::String(ref device_name) = args[0] {
+                info!("device removed: {}", device_name);
+            } else {
+                warn!("unexpected message for prefix {}", &message.addr);
+            }
+        };
     }
 
     fn parse_app_message(&self, message: rosc::OscMessage) -> Option<MonomeEvent> {
-        if let Some(args) = &message.args {
-            if message
-                .addr
-                .starts_with(&format!("{}/grid/key", self.prefix))
+        if message
+            .addr
+            .starts_with(&format!("{}/grid/key", self.prefix))
+        {
+            if let [OscType::Int(x), OscType::Int(y), OscType::Int(v)] = message.args.as_slice() {
+                info!("Key: {}:{} {}", *x, *y, *v);
+                let direction = if *v == 1 {
+                    KeyDirection::Down
+                } else {
+                    KeyDirection::Up
+                };
+                return Some(MonomeEvent::GridKey {
+                    x: *x,
+                    y: *y,
+                    direction,
+                });
+            }
+            error!("Invalid /grid/key message received {:?}.", message.clone());
+        } else if message.addr.starts_with(&format!("{}/tilt", self.prefix)) {
+            if let [OscType::Int(n), OscType::Int(x), OscType::Int(y), OscType::Int(z)] =
+                message.args.as_slice()
             {
-                if let [OscType::Int(x), OscType::Int(y), OscType::Int(v)] =
-                    args.as_slice()
-                {
-                    info!("Key: {}:{} {}", *x, *y, *v);
-                    let direction = if *v == 1 {
+                info!("Tilt {} {},{},{}", *n, *x, *y, *z);
+                return Some(MonomeEvent::Tilt {
+                    n: *n,
+                    x: *x,
+                    y: *y,
+                    z: *z,
+                });
+            }
+            error!("Invalid /tilt message received {:?}.", message);
+        } else if message
+            .addr
+            .starts_with(&format!("{}/enc/delta", self.prefix))
+        {
+            if let [OscType::Int(n), OscType::Int(delta)] = message.args.as_slice() {
+                info!("Encoder delta {} {}", n, delta);
+                return Some(MonomeEvent::EncoderDelta {
+                    n: *n as usize,
+                    delta: *delta,
+                });
+            }
+            error!("Invalid /end/delta message received {:?}.", message);
+        } else if message
+            .addr
+            .starts_with(&format!("{}/enc/key", self.prefix))
+        {
+            if let [OscType::Int(n), OscType::Int(direction)] = message.args.as_slice() {
+                info!("Encoder key {} {}", n, direction);
+                return Some(MonomeEvent::EncoderKey {
+                    n: *n as usize,
+                    direction: if *direction == 1 {
                         KeyDirection::Down
                     } else {
                         KeyDirection::Up
-                    };
-                    return Some(MonomeEvent::GridKey {
-                        x: *x,
-                        y: *y,
-                        direction,
-                    });
-                }
-                error!("Invalid /grid/key message received {:?}.", message);
-            } else if message.addr.starts_with(&format!("{}/tilt", self.prefix)) {
-                if let [OscType::Int(n), OscType::Int(x), OscType::Int(y), OscType::Int(z)] =
-                    args.as_slice()
-                {
-                    info!("Tilt {} {},{},{}", *n, *x, *y, *z);
-                    return Some(MonomeEvent::Tilt {
-                        n: *n,
-                        x: *x,
-                        y: *y,
-                        z: *z,
-                    });
-                }
-                error!("Invalid /tilt message received {:?}.", message);
-            } else if message
-                .addr
-                .starts_with(&format!("{}/enc/delta", self.prefix))
-            {
-                if let [OscType::Int(n), OscType::Int(delta)] = args.as_slice() {
-                    info!("Encoder delta {} {}", *n, *delta);
-                    return Some(MonomeEvent::EncoderDelta {
-                        n: *n as usize,
-                        delta: *delta,
-                    });
-                }
-                error!("Invalid /end/delta message received {:?}.", message);
-            } else if message
-                .addr
-                .starts_with(&format!("{}/enc/key", self.prefix))
-            {
-                if let [OscType::Int(n), OscType::Int(direction)] = args.as_slice() {
-                    info!("Encoder key {} {}", *n, *direction);
-                    return Some(MonomeEvent::EncoderKey {
-                        n: *n as usize,
-                        direction: if *direction == 1 {
-                            KeyDirection::Down
-                        } else {
-                            KeyDirection::Up
-                        },
-                    });
-                }
-                error!("Invalid /end/key message received {:?}.", message);
-            } else {
-                error!("not handled: {:?}", message.addr);
+                    },
+                });
             }
+            error!("Invalid /end/key message received {:?}.", message);
         } else {
-            error!("bad format");
+            error!("not handled: {:?}", message.addr);
         }
         None
     }
@@ -1780,9 +1766,9 @@ mod tests {
                 OscPacket::Bundle(_b) => panic!("unexpected bundle"),
             };
             assert!(msg.addr == "/serialosc/list");
-            assert!(msg.args.is_some());
+            assert!(!msg.args.is_empty());
 
-            let app_port = if let OscType::Int(port) = msg.args.unwrap()[1] {
+            let app_port = if let OscType::Int(port) = msg.args[1] {
                 port
             } else {
                 panic!("bad message");
@@ -1805,7 +1791,7 @@ mod tests {
             fn receive_from_app_and_expect(
                 socket: UdpSocket,
                 expected_addr: String,
-            ) -> (UdpSocket, Option<Vec<OscType>>) {
+            ) -> (UdpSocket, Vec<OscType>) {
                 let (socket, data, _, _) = socket.recv_dgram(vec![0u8; 1024]).wait().unwrap();
                 let packet = decode(&data).unwrap();
 
@@ -1821,7 +1807,7 @@ mod tests {
 
             let (device_socket, args) =
                 receive_from_app_and_expect(device_socket, "/sys/port".into());
-            let port = if let OscType::Int(port) = args.unwrap()[0] {
+            let port = if let OscType::Int(port) = args[0] {
                 assert!(port == 10000);
                 port
             } else {
@@ -1830,8 +1816,7 @@ mod tests {
             assert!(port == 10000);
             let (device_socket, args) =
                 receive_from_app_and_expect(device_socket, "/sys/host".into());
-            let argss = args.unwrap();
-            let host = if let OscType::String(ref host) = argss[0] {
+            let host = if let OscType::String(ref host) = args[0] {
                 host
             } else {
                 panic!("bad host");
@@ -1839,8 +1824,7 @@ mod tests {
             assert!(host == "127.0.0.1");
             let (device_socket, args) =
                 receive_from_app_and_expect(device_socket, "/sys/prefix".into());
-            let argss = args.unwrap();
-            let prefix = if let OscType::String(ref prefix) = argss[0] {
+            let prefix = if let OscType::String(ref prefix) = args[0] {
                 prefix
             } else {
                 panic!("bad prefix");
@@ -1848,7 +1832,7 @@ mod tests {
             assert!(prefix == "/plop");
             let (_device_socket, args) =
                 receive_from_app_and_expect(device_socket, "/sys/info".into());
-            assert!(args.is_none());
+            assert!(args.is_empty());
 
             let message_addrs = vec![
                 "/sys/port",

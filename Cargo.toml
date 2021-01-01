@@ -17,7 +17,7 @@ path = "src/lib.rs"
 [dependencies]
 tokio = "0.1"
 futures = "0.1"
-rosc = "0.1"
+rosc = "0.4"
 log = "0.4"
 crossbeam = "0.7"
 
