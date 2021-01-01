@@ -2,9 +2,9 @@ extern crate env_logger;
 extern crate monome;
 extern crate num;
 extern crate rand;
+use monome::*;
 use rand::prelude::*;
 use std::{thread, time};
-use monome::*;
 
 use monome::Monome;
 
@@ -42,5 +42,4 @@ fn main() {
             panic!("?");
         }
     };
-
 }

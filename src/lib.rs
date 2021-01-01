@@ -4,10 +4,10 @@
 
 use std::fmt;
 use std::io;
-use std::net::{SocketAddr, IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use std::sync::Arc;
 
 use futures::future::Either;
 use tokio::net::UdpSocket;
@@ -582,7 +582,11 @@ impl Monome {
     /// });
     /// ```
     pub fn register_device_change_callback(callback: fn(DeviceChangeEvent)) {
-        Monome::register_device_change_callback_with_host_and_port(std::net::IpAddr::V4(<Ipv4Addr>::LOCALHOST), SERIALOSC_PORT, callback)
+        Monome::register_device_change_callback_with_host_and_port(
+            std::net::IpAddr::V4(<Ipv4Addr>::LOCALHOST),
+            SERIALOSC_PORT,
+            callback,
+        )
     }
     /// Register for device added/removed notifications, on the default serialosc port, passing in
     /// the address at which serialoscd is reachable.
@@ -608,7 +612,10 @@ impl Monome {
     ///     }
     /// });
     /// ```
-    pub fn register_device_change_callback_with_host(addr: IpAddr, callback: fn(DeviceChangeEvent)) {
+    pub fn register_device_change_callback_with_host(
+        addr: IpAddr,
+        callback: fn(DeviceChangeEvent),
+    ) {
         Monome::register_device_change_callback_with_host_and_port(addr, SERIALOSC_PORT, callback)
     }
     /// Register for device added/removed notifications, on the specific serialosc port, when
@@ -636,7 +643,11 @@ impl Monome {
     /// });
     /// ```
     pub fn register_device_change_callback_with_port(port: u16, callback: fn(DeviceChangeEvent)) {
-        Monome::register_device_change_callback_with_host_and_port(std::net::IpAddr::V4(<Ipv4Addr>::LOCALHOST), port, callback)
+        Monome::register_device_change_callback_with_host_and_port(
+            std::net::IpAddr::V4(<Ipv4Addr>::LOCALHOST),
+            port,
+            callback,
+        )
     }
     fn setup<S>(
         prefix: S,
@@ -738,7 +749,10 @@ impl Monome {
     ///     }
     /// }
     /// ```
-    pub fn enumerate_devices_with_host_and_port(serialosc_addr: IpAddr, serialosc_port: u16) -> Result<Vec<MonomeDevice>, String> {
+    pub fn enumerate_devices_with_host_and_port(
+        serialosc_addr: IpAddr,
+        serialosc_port: u16,
+    ) -> Result<Vec<MonomeDevice>, String> {
         let socket = new_bound_socket();
         let mut devices = Vec::<MonomeDevice>::new();
         let server_port = socket.local_addr().unwrap().port();
@@ -777,7 +791,12 @@ impl Monome {
                                     if let [OscType::String(ref name), OscType::String(ref device_type), OscType::Int(port)] =
                                         args.as_slice()
                                     {
-                                        devices.push(MonomeDevice::new(name, device_type, serialosc_addr, (*port) as u16));
+                                        devices.push(MonomeDevice::new(
+                                            name,
+                                            device_type,
+                                            serialosc_addr,
+                                            (*port) as u16,
+                                        ));
                                     }
                                 } else {
                                     break;
@@ -861,7 +880,10 @@ impl Monome {
     /// }
     /// ```
     pub fn enumerate_devices_with_port(port: u16) -> Result<Vec<MonomeDevice>, String> {
-        Monome::enumerate_devices_with_host_and_port(std::net::IpAddr::V4(<Ipv4Addr>::LOCALHOST), port)
+        Monome::enumerate_devices_with_host_and_port(
+            std::net::IpAddr::V4(<Ipv4Addr>::LOCALHOST),
+            port,
+        )
     }
     /// Enumerate all monome devices on the standard port on which serialosc runs (12002), on a
     /// specific address.
@@ -1574,9 +1596,7 @@ impl Monome {
     pub fn poll(&mut self) -> Option<MonomeEvent> {
         match self.q.pop() {
             Ok(buf) => self.parse(&buf),
-            Err(crossbeam::queue::PopError) => {
-                None
-            }
+            Err(crossbeam::queue::PopError) => None,
         }
     }
 
@@ -1692,13 +1712,7 @@ impl fmt::Debug for Monome {
             f,
             "Monome {}\n\ttype: {}\n\tport: {}\n\thost: {}\n\t\
             id: {}\n\tprefix: {}\n\trotation: {}",
-            self.name,
-            self.device_type,
-            self.port,
-            self.host,
-            self.id,
-            self.prefix,
-            self.rotation
+            self.name, self.device_type, self.port, self.host, self.id, self.prefix, self.rotation
         );
         if self.device_type == MonomeDeviceType::Grid {
             return write!(f, "\n\tsize: {}:{}", self.size.0, self.size.1);
