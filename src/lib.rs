@@ -14,7 +14,7 @@ use tokio::net::UdpSocket;
 use tokio::prelude::*;
 use tokio::timer::Delay;
 
-use futures::sync::mpsc::{Sender, Receiver};
+use futures::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use rosc::decoder::decode;
 use rosc::encoder::encode;
@@ -156,7 +156,7 @@ struct Transport {
     /// This is the channel we use to forward the received OSC messages to the client object.
     tx: Arc<ArrayQueue<Vec<u8>>>,
     /// This is where Transport receives the OSC messages to send.
-    rx: Receiver<Vec<u8>>,
+    rx: UnboundedReceiver<Vec<u8>>,
 }
 
 impl Transport {
@@ -165,7 +165,7 @@ impl Transport {
         device_port: u16,
         socket: UdpSocket,
         tx: Arc<ArrayQueue<Vec<u8>>>,
-        rx: Receiver<Vec<u8>>,
+        rx: UnboundedReceiver<Vec<u8>>,
     ) -> Transport {
         let addr = SocketAddr::new(device_addr, device_port);
         Transport {
@@ -251,7 +251,7 @@ pub struct Monome {
     /// A channel that allows receiving serialized OSC messages from a device.
     q: Arc<ArrayQueue<Vec<u8>>>,
     /// A channel that allows sending serialized OSC messages to a device.
-    tx: Sender<Vec<u8>>,
+    tx: UnboundedSender<Vec<u8>>,
 }
 
 /// Whether a key press is going up or down
@@ -999,7 +999,7 @@ impl Monome {
         let prefix = prefix.into();
         let (info, socket, name, device_type, device_port) = Monome::setup(&*prefix, device)?;
 
-        let (sender, receiver) = futures::sync::mpsc::channel(16);
+        let (sender, receiver) = futures::sync::mpsc::unbounded();
         let q = Arc::new(ArrayQueue::new(32));
         let q2 = q.clone();
         let t = Transport::new(device.host(), device_port, socket, q, receiver);
@@ -1530,12 +1530,10 @@ impl Monome {
         let packet = OscPacket::Message(message);
         debug!("⇨ {:?}", packet);
         let bytes: Vec<u8> = encode(&packet).unwrap();
-        match self.tx.try_send(bytes) {
+        match self.tx.unbounded_send(bytes) {
             Ok(()) => {}
-            Err(b) => {
-                let full = b.is_full();
-                let disconnected = b.is_disconnected();
-                error!("full: {:?}, disconnected: {:?}", full, disconnected);
+            Err(_) => {
+                error!("Send channel disconnected");
             }
         }
     }
